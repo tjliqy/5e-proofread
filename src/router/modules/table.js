@@ -40,6 +40,7 @@ const tableRouter = {
       path: 'word/:id',
       component: () => import('@/views/table/word'),
       name: 'Word',
+      hidden: true,
       meta: { title: '单词校对' }
     }
   ]
