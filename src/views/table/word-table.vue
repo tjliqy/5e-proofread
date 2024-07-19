@@ -1,28 +1,28 @@
 <template>
   <div class="app-container">
     <div class="filter-container">
-      <el-input v-model="listQuery.title" placeholder="Title" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
-      <el-select v-model="listQuery.importance" placeholder="Imp" clearable style="width: 90px" class="filter-item">
-        <el-option v-for="item in importanceOptions" :key="item" :label="item" :value="item" />
+      <el-input v-model="listQuery.in_en" placeholder="英文" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+      <el-input v-model="listQuery.in_cn" placeholder="翻译" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+      <el-select v-model="listQuery.eq_is_key" placeholder="关键词" clearable style="width: 90px" class="filter-item">
+        <el-option :key="1" :label="'是'" :value="1" />
+        <el-option :key="0" :label="'否'" :value="0" />
       </el-select>
-      <el-select v-model="listQuery.type" placeholder="Type" clearable class="filter-item" style="width: 130px">
-        <el-option v-for="item in calendarTypeOptions" :key="item.key" :label="item.display_name+'('+item.key+')'" :value="item.key" />
+      <el-select v-model="listQuery.eq_proofread" placeholder="校对" clearable style="width: 90px" class="filter-item">
+        <el-option :key="1" :label="'已校对'" :value="1" />
+        <el-option :key="0" :label="'未校对'" :value="0" />
       </el-select>
       <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
         <el-option v-for="item in sortOptions" :key="item.key" :label="item.label" :value="item.key" />
       </el-select>
       <el-button v-waves class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
-        Search
+        搜索
       </el-button>
-      <el-button class="filter-item" style="margin-left: 10px;" type="primary" icon="el-icon-edit" @click="handleCreate">
+      <!-- <el-button class="filter-item" style="margin-left: 10px;" type="primary" icon="el-icon-edit" @click="handleCreate">
         Add
-      </el-button>
-      <el-button v-waves :loading="downloadLoading" class="filter-item" type="primary" icon="el-icon-download" @click="handleDownload">
+      </el-button> -->
+      <!-- <el-button v-waves :loading="downloadLoading" class="filter-item" type="primary" icon="el-icon-download" @click="handleDownload">
         Export
-      </el-button>
-      <el-checkbox v-model="showReviewer" class="filter-item" style="margin-left:15px;" @change="tableKey=tableKey+1">
-        reviewer
-      </el-checkbox>
+      </el-button> -->
     </div>
 
     <el-table
@@ -40,23 +40,38 @@
           <span>{{ row.id }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="Date" width="150px" align="center">
+      <el-table-column label="英文原文" align="center">
         <template slot-scope="{row}">
-          <span>{{ row.timestamp | parseTime('{y}-{m}-{d} {h}:{i}') }}</span>
+          <span>{{ row.en }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="Title" min-width="150px">
+      <el-table-column label="翻译" align="center">
+        <template slot-scope="{row}">
+          <span>{{ row.cn }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="修改时间" width="160px" align="center">
+        <template slot-scope="{row}">
+          <span>{{ row.modified_at }}</span>
+        </template>
+      </el-table-column>
+      <!-- <el-table-column label="Title" min-width="150px">
         <template slot-scope="{row}">
           <span class="link-type" @click="handleUpdate(row)">{{ row.title }}</span>
           <el-tag>{{ row.type | typeFilter }}</el-tag>
         </template>
-      </el-table-column>
-      <el-table-column label="Author" width="110px" align="center">
+      </el-table-column> -->
+      <el-table-column label="关键词" width="110px" align="center">
         <template slot-scope="{row}">
-          <span>{{ row.author }}</span>
+          <span>{{ row.is_key | boolFilter }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="showReviewer" label="Reviewer" width="110px" align="center">
+      <el-table-column label="是否校对" width="110px" align="center">
+        <template slot-scope="{row}">
+          <span>{{ row.proofread | boolFilter }}</span>
+        </template>
+      </el-table-column>
+      <!-- <el-table-column v-if="showReviewer" label="Reviewer" width="110px" align="center">
         <template slot-scope="{row}">
           <span style="color:red;">{{ row.reviewer }}</span>
         </template>
@@ -78,21 +93,16 @@
             {{ row.status }}
           </el-tag>
         </template>
-      </el-table-column>
-      <el-table-column label="Actions" align="center" width="230" class-name="small-padding fixed-width">
-        <template slot-scope="{row,$index}">
-          <el-button type="primary" size="mini" @click="handleUpdate(row)">
-            Edit
+      </el-table-column> -->
+      <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
+        <!-- <template slot-scope="{row,$index}"> -->
+        <template slot-scope="{row}">
+          <el-button type="primary" size="mini" @click="toProofread(row)">
+            校对
           </el-button>
-          <el-button v-if="row.status!='published'" size="mini" type="success" @click="handleModifyStatus(row,'published')">
-            Publish
-          </el-button>
-          <el-button v-if="row.status!='draft'" size="mini" @click="handleModifyStatus(row,'draft')">
-            Draft
-          </el-button>
-          <el-button v-if="row.status!='deleted'" size="mini" type="danger" @click="handleDelete(row,$index)">
-            Delete
-          </el-button>
+          <!-- <router-link :to="'/table/word/'+row.id">
+            Excel{{ $index }}
+          </router-link> -->
         </template>
       </el-table-column>
     </el-table>
@@ -182,6 +192,9 @@ export default {
     },
     typeFilter(type) {
       return calendarTypeKeyValue[type]
+    },
+    boolFilter(b) {
+      return b === 1 ? '是' : '否'
     }
   },
   data() {
@@ -193,14 +206,20 @@ export default {
       listQuery: {
         page: 1,
         limit: 20,
-        importance: undefined,
-        title: undefined,
-        type: undefined,
+        in_en: undefined,
+        in_cn: undefined,
+        eq_is_key: undefined,
+        eq_proofread: 0,
         sort: '+id'
       },
       importanceOptions: [1, 2, 3],
       calendarTypeOptions,
-      sortOptions: [{ label: 'ID Ascending', key: '+id' }, { label: 'ID Descending', key: '-id' }],
+      sortOptions: [
+        { label: 'ID 升序', key: '+id' },
+        { label: 'ID 降序', key: '-id' },
+        { label: '修改时间 升序', key: '+modified_at' },
+        { label: '修改时间 降序', key: '-modified_at' }
+      ],
       statusOptions: ['published', 'draft', 'deleted'],
       showReviewer: false,
       temp: {
@@ -305,6 +324,9 @@ export default {
           })
         }
       })
+    },
+    toProofread(row) {
+      this.$router.push({ path: '/table/word/' + row.id })
     },
     handleUpdate(row) {
       this.temp = Object.assign({}, row) // copy obj

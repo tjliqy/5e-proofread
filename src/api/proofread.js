@@ -1,8 +1,8 @@
 import request from '@/utils/request'
 
-export function fetchList(query) {
+export function fetchProofreadList(query) {
   return request({
-    url: '/words',
+    url: '/proofread',
     method: 'get',
     params: query
   })
@@ -24,9 +24,9 @@ export function fetchPv(pv) {
   })
 }
 
-export function createArticle(data) {
+export function createProofread(data) {
   return request({
-    url: '/vue-element-admin/article/create',
+    url: '/proofread',
     method: 'post',
     data
   })
