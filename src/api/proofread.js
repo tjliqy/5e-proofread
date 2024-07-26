@@ -8,14 +8,6 @@ export function fetchProofreadList(query) {
   })
 }
 
-export function fetchWord(id) {
-  return request({
-    url: '/words',
-    method: 'get',
-    params: { id }
-  })
-}
-
 export function fetchPv(pv) {
   return request({
     url: '/vue-element-admin/article/pv',
@@ -32,9 +24,9 @@ export function createProofread(data) {
   })
 }
 
-export function updateArticle(data) {
+export function acceptProofread(data) {
   return request({
-    url: '/vue-element-admin/article/update',
+    url: '/accepted',
     method: 'post',
     data
   })

@@ -1,115 +1,132 @@
 <template>
   <div class="app-container">
-    <div class="filter-container">
-      <el-input v-model="listQuery.in_en" placeholder="英文" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
-      <el-input v-model="listQuery.in_cn" placeholder="翻译" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
-      <el-select v-model="listQuery.eq_is_key" placeholder="关键词" clearable style="width: 90px" class="filter-item">
-        <el-option :key="1" :label="'是'" :value="1" />
-        <el-option :key="0" :label="'否'" :value="0" />
-      </el-select>
-      <el-select v-model="listQuery.eq_proofread" placeholder="校对" clearable style="width: 90px" class="filter-item">
-        <el-option :key="1" :label="'已校对'" :value="1" />
-        <el-option :key="0" :label="'未校对'" :value="0" />
-      </el-select>
-      <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
-        <el-option v-for="item in sortOptions" :key="item.key" :label="item.label" :value="item.key" />
-      </el-select>
-      <el-button v-waves class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
-        搜索
-      </el-button>
-      <!-- <el-button class="filter-item" style="margin-left: 10px;" type="primary" icon="el-icon-edit" @click="handleCreate">
-        Add
-      </el-button> -->
-      <!-- <el-button v-waves :loading="downloadLoading" class="filter-item" type="primary" icon="el-icon-download" @click="handleDownload">
-        Export
-      </el-button> -->
-    </div>
+    <el-row :gutter="20">
+      <el-col :span="24">
+        <el-card>
+          <div class="filter-container">
+            <el-input v-model="listQuery.in_en" placeholder="英文" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-input v-model="listQuery.in_cn" placeholder="翻译" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-select v-model="listQuery.eq_is_key" placeholder="关键词" clearable style="width: 90px" class="filter-item">
+              <el-option :key="1" :label="'是'" :value="1" />
+              <el-option :key="0" :label="'否'" :value="0" />
+            </el-select>
+            <el-select v-model="listQuery.eq_proofread" placeholder="确认" clearable style="width: 90px" class="filter-item">
+              <el-option :key="1" :label="'已确认'" :value="1" />
+              <el-option :key="0" :label="'未确认'" :value="0" />
+            </el-select>
+            <el-select v-model="listQuery.has_proofread" placeholder="校对" clearable style="width: 90px" class="filter-item">
+              <el-option :key="1" :label="'已校对'" :value="1" />
+              <el-option :key="0" :label="'未校对'" :value="0" />
+            </el-select>
+            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" placeholder="引用文件" @change="handleFilter">
+              <el-option v-for="item in files" :key="item" :label="item" :value="item" />
+            </el-select>
+            <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
+              <el-option v-for="item in sortOptions" :key="item.key" :label="item.label" :value="item.key" />
+            </el-select>
+            <el-button v-waves class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
+              搜索
+            </el-button>
+            <!-- <el-button class="filter-item" style="margin-left: 10px;" type="primary" icon="el-icon-edit" @click="handleCreate">
+              Add
+            </el-button> -->
+            <!-- <el-button v-waves :loading="downloadLoading" class="filter-item" type="primary" icon="el-icon-download" @click="handleDownload">
+              Export
+            </el-button> -->
+          </div>
 
-    <el-table
-      :key="tableKey"
-      v-loading="listLoading"
-      :data="list"
-      border
-      fit
-      highlight-current-row
-      style="width: 100%;"
-      @sort-change="sortChange"
-    >
-      <el-table-column label="ID" prop="id" sortable="custom" align="center" width="80" :class-name="getSortClass('id')">
-        <template slot-scope="{row}">
-          <span>{{ row.id }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="英文原文" align="center">
-        <template slot-scope="{row}">
-          <span>{{ row.en }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="翻译" align="center">
-        <template slot-scope="{row}">
-          <span>{{ row.cn }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="修改时间" width="160px" align="center">
-        <template slot-scope="{row}">
-          <span>{{ row.modified_at }}</span>
-        </template>
-      </el-table-column>
-      <!-- <el-table-column label="Title" min-width="150px">
-        <template slot-scope="{row}">
-          <span class="link-type" @click="handleUpdate(row)">{{ row.title }}</span>
-          <el-tag>{{ row.type | typeFilter }}</el-tag>
-        </template>
-      </el-table-column> -->
-      <el-table-column label="关键词" width="110px" align="center">
-        <template slot-scope="{row}">
-          <span>{{ row.is_key | boolFilter }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="是否校对" width="110px" align="center">
-        <template slot-scope="{row}">
-          <span>{{ row.proofread | boolFilter }}</span>
-        </template>
-      </el-table-column>
-      <!-- <el-table-column v-if="showReviewer" label="Reviewer" width="110px" align="center">
-        <template slot-scope="{row}">
-          <span style="color:red;">{{ row.reviewer }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Imp" width="80px">
-        <template slot-scope="{row}">
-          <svg-icon v-for="n in + row.importance" :key="n" icon-class="star" class="meta-item__icon" />
-        </template>
-      </el-table-column>
-      <el-table-column label="Readings" align="center" width="95">
-        <template slot-scope="{row}">
-          <span v-if="row.pageviews" class="link-type" @click="handleFetchPv(row.pageviews)">{{ row.pageviews }}</span>
-          <span v-else>0</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Status" class-name="status-col" width="100">
-        <template slot-scope="{row}">
-          <el-tag :type="row.status | statusFilter">
-            {{ row.status }}
-          </el-tag>
-        </template>
-      </el-table-column> -->
-      <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
-        <!-- <template slot-scope="{row,$index}"> -->
-        <template slot-scope="{row}">
-          <el-button type="primary" size="mini" @click="toProofread(row)">
-            校对
-          </el-button>
-          <!-- <router-link :to="'/table/word/'+row.id">
-            Excel{{ $index }}
-          </router-link> -->
-        </template>
-      </el-table-column>
-    </el-table>
+          <el-table
+            :key="tableKey"
+            v-loading="listLoading"
+            :data="list"
+            border
+            fit
+            highlight-current-row
+            style="width: 100%;"
+            @sort-change="sortChange"
+          >
+            <el-table-column label="ID" prop="id" sortable="custom" align="center" width="80" :class-name="getSortClass('id')">
+              <template slot-scope="{row}">
+                <span>{{ row.id }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="英文原文" align="center">
+              <template slot-scope="{row}">
+                <span>{{ row.en }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="翻译" align="center">
+              <template slot-scope="{row}">
+                <span>{{ row.cn }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="修改时间" width="160px" align="center">
+              <template slot-scope="{row}">
+                <span>{{ row.modified_at }}</span>
+              </template>
+            </el-table-column>
+            <!-- <el-table-column label="Title" min-width="150px">
+              <template slot-scope="{row}">
+                <span class="link-type" @click="handleUpdate(row)">{{ row.title }}</span>
+                <el-tag>{{ row.type | typeFilter }}</el-tag>
+              </template>
+            </el-table-column> -->
+            <el-table-column label="关键词" width="110px" align="center">
+              <template slot-scope="{row}">
+                <span>{{ row.is_key | boolFilter }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="是否确认" width="110px" align="center">
+              <template slot-scope="{row}">
+                <span>{{ row.proofread | boolFilter }}</span>
+              </template>
+            </el-table-column>
+            <!-- <el-table-column v-if="showReviewer" label="Reviewer" width="110px" align="center">
+              <template slot-scope="{row}">
+                <span style="color:red;">{{ row.reviewer }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Imp" width="80px">
+              <template slot-scope="{row}">
+                <svg-icon v-for="n in + row.importance" :key="n" icon-class="star" class="meta-item__icon" />
+              </template>
+            </el-table-column>
+            <el-table-column label="Readings" align="center" width="95">
+              <template slot-scope="{row}">
+                <span v-if="row.pageviews" class="link-type" @click="handleFetchPv(row.pageviews)">{{ row.pageviews }}</span>
+                <span v-else>0</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Status" class-name="status-col" width="100">
+              <template slot-scope="{row}">
+                <el-tag :type="row.status | statusFilter">
+                  {{ row.status }}
+                </el-tag>
+              </template>
+            </el-table-column> -->
+            <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
+              <!-- <template slot-scope="{row,$index}"> -->
+              <template slot-scope="{row}">
+                <el-button type="primary" size="mini" @click="toProofread(row)">
+                  校对
+                </el-button>
+                <!-- <router-link :to="'/table/word/'+row.id">
+                  Excel{{ $index }}
+                </router-link> -->
+              </template>
+            </el-table-column>
+          </el-table>
 
-    <pagination v-show="total>0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.limit" @pagination="getList" />
+          <pagination v-show="total>0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.limit" @pagination="getList" />
+        </el-card>
+      </el-col>
+    </el-row>
+    <el-dialog :title="temp['en']" :visible.sync="dialogFormVisible">
+      <proofread ref="proofread" :word="temp" />
+    </el-dialog>
 
-    <el-dialog :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible">
+    <el-dialog :title="textMap[dialogStatus]">
+      <!-- <el-dialog :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible"> -->
       <el-form ref="dataForm" :rules="rules" :model="temp" label-position="left" label-width="70px" style="width: 400px; margin-left:50px;">
         <el-form-item label="Type" prop="type">
           <el-select v-model="temp.type" class="filter-item" placeholder="Please select">
@@ -158,11 +175,13 @@
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/words'
+import { fetchList, createArticle, updateArticle } from '@/api/words'
+// import RightPanel from '@/components/RightPanel'
 
 import waves from '@/directive/waves' // waves directive
 import { parseTime } from '@/utils'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
+import Proofread from './components/proofread.vue'
 
 const calendarTypeOptions = [
   { key: 'CN', display_name: 'China' },
@@ -179,7 +198,7 @@ const calendarTypeKeyValue = calendarTypeOptions.reduce((acc, cur) => {
 
 export default {
   name: 'ComplexTable',
-  components: { Pagination },
+  components: { Pagination, Proofread },
   directives: { waves },
   filters: {
     statusFilter(status) {
@@ -199,6 +218,7 @@ export default {
   },
   data() {
     return {
+      files: [],
       tableKey: 0,
       list: null,
       total: 0,
@@ -210,6 +230,7 @@ export default {
         in_cn: undefined,
         eq_is_key: undefined,
         eq_proofread: 0,
+        has_proofread: undefined,
         sort: '+id'
       },
       importanceOptions: [1, 2, 3],
@@ -224,12 +245,12 @@ export default {
       showReviewer: false,
       temp: {
         id: undefined,
-        importance: 1,
-        remark: '',
-        timestamp: new Date(),
-        title: '',
-        type: '',
-        status: 'published'
+        en: '',
+        cn: '',
+        create_at: '',
+        modified_at: '',
+        is_key: 0,
+        proofread: 0
       },
       dialogFormVisible: false,
       dialogStatus: '',
@@ -248,9 +269,19 @@ export default {
     }
   },
   created() {
+    this.loadFiles()
     this.getList()
   },
   methods: {
+    loadFiles() {
+      this.$store.dispatch('file/loadJsonFiles').then(files => {
+        console.log(files)
+        for (const k in files) {
+          this.files.push(k)
+        }
+        // this.files = files
+      })
+    },
     getList() {
       this.listLoading = true
       fetchList(this.listQuery).then(response => {
@@ -326,7 +357,11 @@ export default {
       })
     },
     toProofread(row) {
-      this.$router.push({ path: '/table/word/' + row.id })
+      // this.$router.push({ path: '/table/word/' + row.id })
+      this.dialogFormVisible = true
+      this.$nextTick(() => {
+        this.temp = row
+      })
     },
     handleUpdate(row) {
       this.temp = Object.assign({}, row) // copy obj
@@ -365,12 +400,12 @@ export default {
       })
       this.list.splice(index, 1)
     },
-    handleFetchPv(pv) {
-      fetchPv(pv).then(response => {
-        this.pvData = response.data.pvData
-        this.dialogPvVisible = true
-      })
-    },
+    // handleFetchPv(pv) {
+    //   fetchPv(pv).then(response => {
+    //     this.pvData = response.data.pvData
+    //     this.dialogPvVisible = true
+    //   })
+    // },
     handleDownload() {
       this.downloadLoading = true
       import('@/vendor/Export2Excel').then(excel => {

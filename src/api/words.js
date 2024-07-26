@@ -16,11 +16,11 @@ export function fetchWord(id) {
   })
 }
 
-export function fetchPv(pv) {
+export function fetchSourceFiles(eq_word_id) {
   return request({
-    url: '/vue-element-admin/article/pv',
+    url: '/source',
     method: 'get',
-    params: { pv }
+    params: { eq_word_id }
   })
 }
 

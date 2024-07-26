@@ -5,7 +5,7 @@ import Layout from '@/layout'
 const tableRouter = {
   path: '/table',
   component: Layout,
-  redirect: '/table/complex-table',
+  redirect: '/table/word-table',
   name: 'Table',
   meta: {
     title: 'Table',
@@ -42,6 +42,12 @@ const tableRouter = {
       name: 'Word',
       hidden: true,
       meta: { title: '单词校对' }
+    },
+    {
+      path: 'files',
+      component: () => import('@/views/file/list'),
+      name: 'FileList',
+      meta: { title: '文件列表', affix: true }
     }
   ]
 }
