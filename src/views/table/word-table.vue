@@ -18,7 +18,7 @@
               <el-option :key="1" :label="'已校对'" :value="1" />
               <el-option :key="0" :label="'未校对'" :value="0" />
             </el-select>
-            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" placeholder="引用文件" @change="handleFilter">
+            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" filterable placeholder="引用文件" @change="handleFilter">
               <el-option v-for="item in files" :key="item" :label="item" :value="item" />
             </el-select>
             <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
