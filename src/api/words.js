@@ -24,18 +24,10 @@ export function fetchSourceFiles(eq_word_id) {
   })
 }
 
-export function createArticle(data) {
+export function fetchFileSource(eq_file) {
   return request({
-    url: '/vue-element-admin/article/create',
-    method: 'post',
-    data
-  })
-}
-
-export function updateArticle(data) {
-  return request({
-    url: '/vue-element-admin/article/update',
-    method: 'post',
-    data
+    url: '/source',
+    method: 'get',
+    params: { eq_file }
   })
 }

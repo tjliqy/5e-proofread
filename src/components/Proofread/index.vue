@@ -8,7 +8,7 @@
       <p>{{ word.cn }}</p>
       <p><b>是否关键词：</b>{{ word.is_key | boolFilter }}</p>
       <p><b>是否已确认：</b>{{ word.proofread | boolFilter }}</p>
-      <p><b>引用文件：</b>{{ source_files }}</p>
+      <div><b>引用文件：</b><el-tag v-for="s in source_files" :key="s" style="margin-right: 4px;">{{ s }}</el-tag></div>
     </el-card>
 
     <el-card header="校对内容">
@@ -63,7 +63,7 @@
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { updateArticle, fetchSourceFiles } from '@/api/words'
+import { fetchSourceFiles } from '@/api/words'
 import { createProofread, fetchProofreadList, acceptProofread } from '@/api/proofread'
 
 import waves from '@/directive/waves' // waves directive
@@ -213,6 +213,7 @@ export default {
           type: 'success'
         })
         this.word.proofread = 1
+        this.word.cn = row.cn
         this.getProofreadList()
       }).finally(() => {
         this.loading = false
@@ -273,25 +274,6 @@ export default {
           modified_by: ''
         }
         this.getProofreadList()
-      })
-    },
-    updateData() {
-      this.$refs['dataForm'].validate((valid) => {
-        if (valid) {
-          const tempData = Object.assign({}, this.word)
-          tempData.modified_at = +new Date(tempData.timestamp) // change Thu Nov 30 2017 16:41:05 GMT+0800 (CST) to 1512031311464
-          updateArticle(tempData).then(() => {
-            // const index = this.list.findIndex(v => v.id === this.word.id)
-            // this.list.splice(index, 1, this.temp)
-            // this.dialogFormVisible = false
-            this.$notify({
-              title: 'Success',
-              message: 'Update Successfully',
-              type: 'success',
-              duration: 2000
-            })
-          })
-        }
       })
     },
     handleDownload() {

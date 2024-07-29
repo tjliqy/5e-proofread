@@ -4,8 +4,8 @@
       <el-col :span="24">
         <el-card>
           <div class="filter-container">
-            <el-input v-model="listQuery.in_en" placeholder="英文" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
-            <el-input v-model="listQuery.in_cn" placeholder="翻译" style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-input v-model="listQuery.in_en" placeholder="英文" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-input v-model="listQuery.in_cn" placeholder="翻译" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
             <el-select v-model="listQuery.eq_is_key" placeholder="关键词" clearable style="width: 90px" class="filter-item">
               <el-option :key="1" :label="'是'" :value="1" />
               <el-option :key="0" :label="'否'" :value="0" />
@@ -18,7 +18,7 @@
               <el-option :key="1" :label="'已校对'" :value="1" />
               <el-option :key="0" :label="'未校对'" :value="0" />
             </el-select>
-            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" filterable placeholder="引用文件" @change="handleFilter">
+            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" clearable filterable placeholder="引用文件" @change="handleFilter">
               <el-option v-for="item in files" :key="item" :label="item" :value="item" />
             </el-select>
             <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
@@ -121,7 +121,7 @@
         </el-card>
       </el-col>
     </el-row>
-    <el-dialog :title="temp['en']" :visible.sync="dialogFormVisible">
+    <el-dialog :visible.sync="dialogFormVisible">
       <proofread ref="proofread" :word="temp" />
     </el-dialog>
 
@@ -175,13 +175,13 @@
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { fetchList, createArticle, updateArticle } from '@/api/words'
+import { fetchList } from '@/api/words'
 // import RightPanel from '@/components/RightPanel'
 
 import waves from '@/directive/waves' // waves directive
 import { parseTime } from '@/utils'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
-import Proofread from './components/proofread.vue'
+import Proofread from '@/components/Proofread'
 
 const calendarTypeOptions = [
   { key: 'CN', display_name: 'China' },
@@ -296,6 +296,8 @@ export default {
     },
     handleFilter() {
       this.listQuery.page = 1
+      this.listQuery.in_cn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : undefined
+      this.listQuery.in_en = this.listQuery.in_en ? this.listQuery.in_en.trim() : undefined
       this.getList()
     },
     handleModifyStatus(row, status) {
@@ -338,24 +340,24 @@ export default {
         this.$refs['dataForm'].clearValidate()
       })
     },
-    createData() {
-      this.$refs['dataForm'].validate((valid) => {
-        if (valid) {
-          this.temp.id = parseInt(Math.random() * 100) + 1024 // mock a id
-          this.temp.author = 'vue-element-admin'
-          createArticle(this.temp).then(() => {
-            this.list.unshift(this.temp)
-            this.dialogFormVisible = false
-            this.$notify({
-              title: 'Success',
-              message: 'Created Successfully',
-              type: 'success',
-              duration: 2000
-            })
-          })
-        }
-      })
-    },
+    // createData() {
+    //   this.$refs['dataForm'].validate((valid) => {
+    //     if (valid) {
+    //       this.temp.id = parseInt(Math.random() * 100) + 1024 // mock a id
+    //       this.temp.author = 'vue-element-admin'
+    //       createArticle(this.temp).then(() => {
+    //         this.list.unshift(this.temp)
+    //         this.dialogFormVisible = false
+    //         this.$notify({
+    //           title: 'Success',
+    //           message: 'Created Successfully',
+    //           type: 'success',
+    //           duration: 2000
+    //         })
+    //       })
+    //     }
+    //   })
+    // },
     toProofread(row) {
       // this.$router.push({ path: '/table/word/' + row.id })
       this.dialogFormVisible = true
@@ -372,25 +374,25 @@ export default {
         this.$refs['dataForm'].clearValidate()
       })
     },
-    updateData() {
-      this.$refs['dataForm'].validate((valid) => {
-        if (valid) {
-          const tempData = Object.assign({}, this.temp)
-          tempData.timestamp = +new Date(tempData.timestamp) // change Thu Nov 30 2017 16:41:05 GMT+0800 (CST) to 1512031311464
-          updateArticle(tempData).then(() => {
-            const index = this.list.findIndex(v => v.id === this.temp.id)
-            this.list.splice(index, 1, this.temp)
-            this.dialogFormVisible = false
-            this.$notify({
-              title: 'Success',
-              message: 'Update Successfully',
-              type: 'success',
-              duration: 2000
-            })
-          })
-        }
-      })
-    },
+    // updateData() {
+    //   this.$refs['dataForm'].validate((valid) => {
+    //     if (valid) {
+    //       const tempData = Object.assign({}, this.temp)
+    //       tempData.timestamp = +new Date(tempData.timestamp) // change Thu Nov 30 2017 16:41:05 GMT+0800 (CST) to 1512031311464
+    //       updateArticle(tempData).then(() => {
+    //         const index = this.list.findIndex(v => v.id === this.temp.id)
+    //         this.list.splice(index, 1, this.temp)
+    //         this.dialogFormVisible = false
+    //         this.$notify({
+    //           title: 'Success',
+    //           message: 'Update Successfully',
+    //           type: 'success',
+    //           duration: 2000
+    //         })
+    //       })
+    //     }
+    //   })
+    // },
     handleDelete(row, index) {
       this.$notify({
         title: 'Success',

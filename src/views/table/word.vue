@@ -58,7 +58,7 @@
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { updateArticle, fetchWord } from '@/api/words'
+import { fetchWord } from '@/api/words'
 import { createProofread, fetchProofreadList } from '@/api/proofread'
 
 import waves from '@/directive/waves' // waves directive
@@ -226,25 +226,25 @@ export default {
         })
       })
     },
-    updateData() {
-      this.$refs['dataForm'].validate((valid) => {
-        if (valid) {
-          const tempData = Object.assign({}, this.word)
-          tempData.modified_at = +new Date(tempData.timestamp) // change Thu Nov 30 2017 16:41:05 GMT+0800 (CST) to 1512031311464
-          updateArticle(tempData).then(() => {
-            // const index = this.list.findIndex(v => v.id === this.word.id)
-            // this.list.splice(index, 1, this.temp)
-            // this.dialogFormVisible = false
-            this.$notify({
-              title: 'Success',
-              message: 'Update Successfully',
-              type: 'success',
-              duration: 2000
-            })
-          })
-        }
-      })
-    },
+    // updateData() {
+    //   this.$refs['dataForm'].validate((valid) => {
+    //     if (valid) {
+    //       const tempData = Object.assign({}, this.word)
+    //       tempData.modified_at = +new Date(tempData.timestamp) // change Thu Nov 30 2017 16:41:05 GMT+0800 (CST) to 1512031311464
+    //       updateArticle(tempData).then(() => {
+    //         // const index = this.list.findIndex(v => v.id === this.word.id)
+    //         // this.list.splice(index, 1, this.temp)
+    //         // this.dialogFormVisible = false
+    //         this.$notify({
+    //           title: 'Success',
+    //           message: 'Update Successfully',
+    //           type: 'success',
+    //           duration: 2000
+    //         })
+    //       })
+    //     }
+    //   })
+    // },
     handleDownload() {
       this.downloadLoading = true
       import('@/vendor/Export2Excel').then(excel => {
