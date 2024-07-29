@@ -146,6 +146,16 @@ export default {
           }
           if (strs[j] in this.words) {
             res_line.push({ html: strs[j], word: strs[j] })
+          } else if (strs[j].indexOf('|') > -1) {
+            const sub_strs = strs[j].split('|')
+            for (const s in sub_strs) {
+              const sub_s = sub_strs[s]
+              if (sub_s in this.words) {
+                res_line.push({ html: sub_s, word: sub_s })
+              } else {
+                res_line.push({ html: sub_s, word: undefined })
+              }
+            }
           } else {
             res_line.push({ html: strs[j], word: undefined })
           }
