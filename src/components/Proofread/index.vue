@@ -120,6 +120,12 @@ import { createProofread, fetchProofreadList, acceptProofread } from '@/api/proo
 import waves from '@/directive/waves' // waves directive
 import { parseTime } from '@/utils'
 // import Pagination from '@/components/Pagination' // secondary package based on el-pagination
+function countOccurrences(string, substring) {
+  // 使用正则表达式全局搜索子字符串出现的次数
+  // 这里我们使用match方法和全局g标志
+  const matches = string.match(new RegExp(substring, 'g'))
+  return matches ? matches.length : 0
+}
 
 export default {
   name: 'Proofread',
@@ -357,6 +363,16 @@ export default {
       tempData.word_id = this.word.id
       tempData.modified_at = undefined
       tempData.modified_by = undefined
+      if (countOccurrences(this.word.en, '{@') !== countOccurrences(this.proofread.cn, '{@') ||
+      countOccurrences(this.word.en, '}') !== countOccurrences(this.proofread.cn, '}')) {
+        this.$notify({
+          title: 'Error',
+          message: '无法提交，请核对文本中的标记符（类似{@spell light}）',
+          type: 'error',
+          duration: 5000
+        })
+        return
+      }
       createProofread(tempData).then(() => {
         this.$notify({
           title: 'Success',
