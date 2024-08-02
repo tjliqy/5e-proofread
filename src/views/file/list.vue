@@ -6,18 +6,18 @@
     <!-- <json-editor ref="jsonEditor" v-model="json_txt" /> -->
     <el-main>
       <p>点击左侧列表查看文件详情</p>
-      <p>绿色：已确认文本。 蓝色：未确认文本。</p>
+      <p>绿色：已确认文本。 黄色：有校对未确认的文本。 蓝色：未确认文本。</p>
       <h1>{{ file_path }}</h1>
       <p v-for="jhtml, i in json_html" :key="i" style="white-space:pre;margin:0">
         <template v-for="x, j in jhtml">
-          <el-link v-if="x.word" :key="j" :type="words[x.html].proofread?'success':'primary'" @click="toProofread(words[x.html])">{{ words[x.html].cn }}</el-link>
+          <el-link v-if="x.word" :key="j" :type="words[x.html].proofread?'success':(words[x.html].is_key?'warning':'primary')" @click="toProofread(words[x.html], x.html)">{{ words[x.html].cn }}</el-link>
           <template v-else>{{ x.html }}</template>
         </template>
 
       </p>
     </el-main>
-    <el-dialog :visible.sync="dialogFormVisible">
-      <proofread ref="proofread" :word="temp" />
+    <el-dialog :visible.sync="dialogFormVisible" :title="en_in_file">
+      <proofread ref="proofread" :word="temp" :current-file="file_path" />
     </el-dialog>
   </el-container>
 </template>
@@ -41,6 +41,7 @@ export default {
       file_path: '',
       json_txt: '',
       json_html: [],
+      en_in_file: '',
       dialogFormVisible: false,
       loading: false,
       temp: {
@@ -164,11 +165,12 @@ export default {
       }
       this.json_html = res
     },
-    toProofread(row) {
+    toProofread(row, en_in_file) {
       // this.$router.push({ path: '/table/word/' + row.id })
       this.dialogFormVisible = true
       this.$nextTick(() => {
         this.temp = row
+        this.en_in_file = en_in_file
       })
     }
   }

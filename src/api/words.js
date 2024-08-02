@@ -31,3 +31,19 @@ export function fetchFileSource(eq_file) {
     params: { eq_file }
   })
 }
+
+export function replaceTranslate(data) {
+  return request({
+    url: '/source',
+    method: 'put',
+    data
+  })
+}
+
+export function replaceKeyWords(data) {
+  return request({
+    url: '/replace-key',
+    method: 'post',
+    data
+  })
+}

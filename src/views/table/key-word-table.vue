@@ -5,7 +5,8 @@
         <el-card>
           <div class="filter-container">
             <el-input v-model="listQuery.in_en" placeholder="英文" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
-            <el-input v-model="listQuery.in_cn" placeholder="翻译" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-input v-model="listQuery.nin_cn" placeholder="正确翻译" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-input v-model="listQuery.in_cn" placeholder="错误翻译" clearable style="width: 200px;" class="filter-item" />
             <!-- <el-select v-model="listQuery.eq_is_key" placeholder="关键词" clearable style="width: 90px" class="filter-item">
               <el-option :key="1" :label="'是'" :value="1" />
               <el-option :key="0" :label="'否'" :value="0" />
@@ -26,6 +27,9 @@
             </el-select>
             <el-button v-waves class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
               搜索
+            </el-button>
+            <el-button v-waves class="filter-item" type="danger" @click="handleReplace">
+              批量替换
             </el-button>
             <!-- <el-button class="filter-item" style="margin-left: 10px;" type="primary" icon="el-icon-edit" @click="handleCreate">
               Add
@@ -169,7 +173,7 @@
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { fetchList } from '@/api/words'
+import { fetchList, replaceKeyWords } from '@/api/words'
 // import RightPanel from '@/components/RightPanel'
 
 import waves from '@/directive/waves' // waves directive
@@ -191,7 +195,7 @@ const calendarTypeKeyValue = calendarTypeOptions.reduce((acc, cur) => {
 }, {})
 
 export default {
-  name: 'ComplexTable',
+  name: 'KeyTable',
   components: { Pagination, Proofread },
   directives: { waves },
   filters: {
@@ -246,6 +250,7 @@ export default {
         is_key: 0,
         proofread: 0
       },
+      wrongCn: '',
       dialogFormVisible: false,
       dialogStatus: '',
       textMap: {
@@ -290,8 +295,8 @@ export default {
     },
     handleFilter() {
       this.listQuery.page = 1
-      this.listQuery.in_cn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : undefined
-      this.listQuery.in_en = this.listQuery.in_en ? this.listQuery.in_en.trim() : undefined
+      // this.listQuery.in_cn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : undefined
+      // this.listQuery.in_en = this.listQuery.in_en ? this.listQuery.in_en.trim() : undefined
       this.getList()
     },
     handleModifyStatus(row, status) {
@@ -368,25 +373,33 @@ export default {
         this.$refs['dataForm'].clearValidate()
       })
     },
-    // updateData() {
-    //   this.$refs['dataForm'].validate((valid) => {
-    //     if (valid) {
-    //       const tempData = Object.assign({}, this.temp)
-    //       tempData.timestamp = +new Date(tempData.timestamp) // change Thu Nov 30 2017 16:41:05 GMT+0800 (CST) to 1512031311464
-    //       updateArticle(tempData).then(() => {
-    //         const index = this.list.findIndex(v => v.id === this.temp.id)
-    //         this.list.splice(index, 1, this.temp)
-    //         this.dialogFormVisible = false
-    //         this.$notify({
-    //           title: 'Success',
-    //           message: 'Update Successfully',
-    //           type: 'success',
-    //           duration: 2000
-    //         })
-    //       })
-    //     }
-    //   })
-    // },
+    handleReplace(row) {
+      if (this.listQuery.in_cn === '') {
+        this.$message({
+          message: '请输入错误翻译',
+          type: 'warning'
+        })
+      } else if (this.listQuery.nin_cn === '') {
+        this.$message({
+          message: '请输入正确翻译',
+          type: 'warning'
+        })
+      } else if (this.listQuery.in_en === '') {
+        this.$message({
+          message: '请输入英文',
+          type: 'warning'
+        })
+      } else {
+        replaceKeyWords({ wrongCn: this.listQuery.in_cn, rightCn: this.listQuery.nin_cn, en: this.listQuery.in_en }).then(response => {
+          const data = response.data
+          this.$message({
+            message: '已修正:' + data.count + '条',
+            type: 'success'
+          })
+          this.handleFilter()
+        })
+      }
+    },
     handleDelete(row, index) {
       this.$notify({
         title: 'Success',

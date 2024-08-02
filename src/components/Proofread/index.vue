@@ -6,7 +6,8 @@
       <h4>当前翻译</h4>
       <!-- <el-input v-model="word.cn" type="textarea" rows=5 disabled/> -->
       <p>{{ word.cn }}</p>
-      <p><b>是否关键词：</b>{{ word.is_key | boolFilter }}</p>
+      <p><b>翻译来源：</b>{{ word.source }}</p>
+      <p><b>是否已有校对：</b>{{ word.is_key | boolFilter }}</p>
       <p><b>是否已确认：</b>{{ word.proofread | boolFilter }}</p>
       <div><b>引用文件：</b><el-tag v-for="s in source_files" :key="s" style="margin-right: 4px;">{{ s }}</el-tag></div>
     </el-card>
@@ -58,12 +59,62 @@
         </el-table-column>
       </el-table>
     </el-card>
+    <el-card v-if="role == 'admin' && currentFile != ''" header="相关单词">
+      <el-table
+        :key="tableKey"
+        v-loading="relationLoading"
+        :data="relationList"
+        border
+        fit
+        highlight-current-row
+        style="width: 100%;"
+        @sort-change="sortChange"
+      >
+        <el-table-column label="英文" align="center">
+          <template slot-scope="{row}">
+            <span>{{ row.en }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="翻译" align="center">
+          <template slot-scope="{row}">
+            <span>{{ row.cn }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="是否确认" align="center">
+          <template slot-scope="{row}">
+            <span>{{ row.proofread | boolFilter }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源" align="center">
+          <template slot-scope="{row}">
+            <span>{{ row.source }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="修改时间" width="180px" align="center">
+          <template slot-scope="{row}">
+            <span>{{ row.modified_at }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
+          <!-- <template slot-scope="{row,$index}"> -->
+          <template slot-scope="{row}">
+            <el-button type="primary" size="mini" @click="handleReplace(row)">
+              替换
+            </el-button>
+            <!-- <router-link :to="'/table/word/'+row.id">
+                  Excel{{ $index }}
+                </router-link> -->
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { fetchSourceFiles } from '@/api/words'
+import { fetchSourceFiles, fetchList, replaceTranslate } from '@/api/words'
 import { createProofread, fetchProofreadList, acceptProofread } from '@/api/proofread'
 
 import waves from '@/directive/waves' // waves directive
@@ -95,12 +146,17 @@ export default {
           id: undefined,
           en: '',
           cn: '',
+          source: '',
           create_at: '',
           modified_at: '',
           is_key: 0,
           proofread: 0
         }
       }
+    },
+    currentFile: {
+      type: String,
+      default: ''
     }
   },
   data() {
@@ -113,9 +169,15 @@ export default {
       loading: true,
       proofreadLoading: true,
       proofreadList: null,
-      listQuery: {
+      relationLoading: true,
+      relationList: [],
+      proofreadQuery: {
         page: 1,
         limit: 20,
+        sort: '-modified_at'
+      },
+      relationQuery: {
+        eq_en: '',
         sort: '-modified_at'
       },
       proofread: {
@@ -142,7 +204,7 @@ export default {
   },
   computed: {
     canProofread() {
-      return this.word.id !== undefined && this.word.proofread === 1
+      return this.word.id !== undefined && this.word.proofread === 1 && this.role !== 'admin'
     }
   },
   watch: {
@@ -156,6 +218,9 @@ export default {
         }
         this.getSourceFiles()
         this.getProofreadList()
+        if (this.currentFile !== '') {
+          this.getRelationList()
+        }
       },
       deep: true
     }
@@ -168,7 +233,7 @@ export default {
     //   this.loading = true
     //   fetchWord(this.id).then(response => {
     //     this.word = response.data
-    //     this.listQuery.eq_word_id = this.word.id
+    //     this.proofreadQuery.eq_word_id = this.word.id
     //     this.getProofreadList()
     //     // Just to simulate the time of the request
     //     setTimeout(() => {
@@ -177,13 +242,24 @@ export default {
     //   })
     // },
     getProofreadList() {
-      this.listQuery.eq_word_id = this.word.id
+      this.proofreadQuery.eq_word_id = this.word.id
       this.proofreadLoading = true
-      fetchProofreadList(this.listQuery).then(response => {
+      fetchProofreadList(this.proofreadQuery).then(response => {
         this.proofreadList = response.data.items
         this.total = response.data.count
       }).finally(() => {
         this.proofreadLoading = false
+      })
+    },
+    getRelationList() {
+      this.relationQuery.eq_en = this.word.en
+      this.relationQuery.neq_id = this.word.id
+      this.relationLoading = true
+      fetchList(this.relationQuery).then(response => {
+        this.relationList = response.data.items
+        // this.total = response.data.count
+      }).finally(() => {
+        this.relationLoading = false
       })
     },
     getSourceFiles() {
@@ -201,12 +277,32 @@ export default {
     },
 
     handleFilter() {
-      this.listQuery.page = 1
+      this.proofreadQuery.page = 1
       this.getInfo()
     },
     handleAccepted(row) {
       this.loading = true
       acceptProofread(row).then(() => {
+        this.loading = false
+        this.$message({
+          message: '已采纳:' + row.cn,
+          type: 'success'
+        })
+        this.word.proofread = 1
+        this.word.cn = row.cn
+        this.getProofreadList()
+      }).finally(() => {
+        this.loading = false
+      })
+    },
+    handleReplace(row) {
+      this.loading = true
+      const data = {
+        file: this.currentFile,
+        word_id: this.word.id,
+        new_word_id: row.id
+      }
+      replaceTranslate(data).then(() => {
         this.loading = false
         this.$message({
           message: '已采纳:' + row.cn,
@@ -234,9 +330,9 @@ export default {
     },
     sortByID(order) {
       if (order === 'ascending') {
-        this.listQuery.sort = '+id'
+        this.proofreadQuery.sort = '+id'
       } else {
-        this.listQuery.sort = '-id'
+        this.proofreadQuery.sort = '-id'
       }
       this.handleFilter()
     },
@@ -275,6 +371,7 @@ export default {
         }
         this.getProofreadList()
       })
+      this.word.is_key = true
     },
     handleDownload() {
       this.downloadLoading = true
@@ -300,7 +397,7 @@ export default {
       }))
     },
     getSortClass(key) {
-      const sort = this.listQuery.sort
+      const sort = this.proofreadQuery.sort
       return sort === `+${key}` ? 'ascending' : 'descending'
     }
   }

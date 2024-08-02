@@ -48,6 +48,13 @@ const tableRouter = {
       component: () => import('@/views/file/list'),
       name: 'FileList',
       meta: { title: '文件列表', affix: true }
+    },
+    {
+      path: 'key-words',
+      component: () => import('@/views/table/key-word-table'),
+      name: 'FileList',
+      meta: { title: '关键词批量修正', affix: true, roles: ['admin'] // you can set roles in root nav
+      }
     }
   ]
 }
