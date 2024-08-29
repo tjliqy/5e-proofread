@@ -52,7 +52,7 @@ const tableRouter = {
     {
       path: 'key-words',
       component: () => import('@/views/table/key-word-table'),
-      name: 'FileList',
+      name: 'KeyWordList',
       meta: { title: '关键词批量修正', affix: true, roles: ['admin'] // you can set roles in root nav
       }
     }

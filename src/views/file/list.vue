@@ -1,24 +1,51 @@
 <template>
   <el-container v-loading="loading" element-loading-text="加载时间较长，请耐心等待..." :style="'height: '+ containerHeight+'px'">
-    <el-aside>
-      <el-tree :data="getFilesMenu" :props="defaultProps" style="overflow: auto;height: 100%;" @node-click="handleNodeClick" />
-    </el-aside>
-    <!-- <json-editor ref="jsonEditor" v-model="json_txt" /> -->
-    <el-main>
-      <p>点击左侧列表查看文件详情</p>
-      <p>绿色：已确认文本。 黄色：有校对未确认的文本。 蓝色：未确认文本。</p>
-      <h1>{{ file_path }}</h1>
-      <p v-for="jhtml, i in json_html" :key="i" style="white-space:pre;margin:0">
-        <template v-for="x, j in jhtml">
-          <el-link v-if="x.word" :key="j" :type="words[x.html].proofread?'success':(words[x.html].is_key?'warning':'primary')" @click="toProofread(words[x.html], x.html)">{{ words[x.html].cn }}</el-link>
-          <template v-else>{{ x.html }}</template>
-        </template>
+    <el-drawer
+      title="我是标题"
+      :visible.sync="drawVisible"
+      direction="rtl"
+      style="height: 100%;"
+    >
+      <el-tree :data="getFilesMenu" :props="defaultProps" style="overflow-y: scroll;height: 100%;" @node-click="handleNodeClick" />
+    </el-drawer>
 
-      </p>
+    <el-main>
+      <div style="display: flex; width: 100%; height: 36px">
+        <el-button type="primary" size="small" @click="drawVisible = true">打开文件列表</el-button>
+        <p class="top-info">
+          <span v-if="file_path == ''">点击左侧列表查看文件详情。</span>
+          <span v-else>当前文件：<b>{{ file_path }}</b>。</span>
+          <span style="color: green;">绿色</span>：已确认文本。
+          <span style="color: yellow">黄色</span>：有校对未确认的文本。
+          <span style="color: blue;">蓝色</span>：未确认文本。
+        </p>
+      </div>
+      <!-- <json-editor ref="jsonEditor" v-model="json_txt" /> -->
+      <split-pane split="horizontal" :style="'height: '+ (containerHeight - 40)+'px'">
+        <template slot="paneL" style="overflow-y:scroll;">
+
+          <div style="overflow-y:scroll;height:100%">
+            <p v-for="jhtml, i in json_html" :key="i" style="white-space:pre;margin:0">
+              <template v-for="x, j in jhtml">
+                <el-link v-if="x.word" :key="j" :type="words[x.html].proofread?'success':(words[x.html].is_key?'warning':'primary')" @click="toProofread(words[x.html], x.html)">{{ words[x.html].cn }}</el-link>
+                <template v-else>{{ x.html }}</template>
+              </template>
+            </p>
+          </div>
+        </template>
+        <template slot="paneR">
+          <div style="overflow-y:scroll;height:100%">
+            <div v-if="temp.id === undefined" style="  display: flex;justify-content: center;align-items: center;">
+              <h3>校对窗口:请先选择要校对的文本</h3>
+            </div>
+            <proofread v-else ref="proofread" :word="temp" :current-file="file_path" />
+          </div>
+        </template>
+      </split-pane>
     </el-main>
-    <el-dialog :visible.sync="dialogFormVisible" :title="en_in_file">
+    <!-- <el-dialog :visible.sync="dialogFormVisible" :title="en_in_file">
       <proofread ref="proofread" :word="temp" :current-file="file_path" />
-    </el-dialog>
+    </el-dialog> -->
   </el-container>
 </template>
 
@@ -26,12 +53,14 @@
 // import JsonEditor from '@/components/JsonEditor'
 import { fetchFileSource } from '@/api/words'
 import Proofread from '@/components/Proofread'
+import splitPane from 'vue-splitpane'
 
 export default {
   name: 'FileList',
-  components: { Proofread },
+  components: { Proofread, splitPane },
   data() {
     return {
+      drawVisible: false,
       files: [],
       words: [],
       defaultProps: {
@@ -42,7 +71,6 @@ export default {
       json_txt: '',
       json_html: [],
       en_in_file: '',
-      dialogFormVisible: false,
       loading: false,
       temp: {
         id: undefined,
@@ -139,7 +167,21 @@ export default {
           res_line.push({ html: cur_l.split('\":\"')[0] + '\":\"' })
           cur_l = cur_l.split('\":\"')[1]
         }
-        const strs = cur_l.split('\"')
+        const origin_str = cur_l.split('\"')
+        const strs = []
+        let tmp_str = ''
+        for (const j in origin_str) {
+          if (origin_str[j] === '') {
+            // res_line.push({ html: '\"', word: undefined })
+            continue
+          }
+          if (origin_str[j].endsWith('\\')) {
+            tmp_str = tmp_str + origin_str[j].slice(0, -1) + '\"'
+          } else {
+            strs.push(tmp_str + origin_str[j])
+            tmp_str = ''
+          }
+        }
         for (const j in strs) {
           if (strs[j] === '') {
             // res_line.push({ html: '\"', word: undefined })
@@ -167,7 +209,6 @@ export default {
     },
     toProofread(row, en_in_file) {
       // this.$router.push({ path: '/table/word/' + row.id })
-      this.dialogFormVisible = true
       this.$nextTick(() => {
         this.temp = row
         this.en_in_file = en_in_file
@@ -176,3 +217,10 @@ export default {
   }
 }
 </script>
+<style>
+  .top-info {
+    font-size: 12px;
+    line-height:36px;
+    margin:0 4px;
+  }
+</style>

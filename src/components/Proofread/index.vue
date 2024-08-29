@@ -1,22 +1,29 @@
 <template>
   <div v-loading="loading">
-    <el-card header="单词校对">
-      <h4>英文原文</h4>
-      <p>{{ word.en }}</p>
-      <h4>当前翻译</h4>
-      <!-- <el-input v-model="word.cn" type="textarea" rows=5 disabled/> -->
-      <p>{{ word.cn }}</p>
-      <p><b>翻译来源：</b>{{ word.source }}</p>
-      <p><b>是否已有校对：</b>{{ word.is_key | boolFilter }}</p>
-      <p><b>是否已确认：</b>{{ word.proofread | boolFilter }}</p>
-      <div><b>引用文件：</b><el-tag v-for="s in source_files" :key="s" style="margin-right: 4px;">{{ s }}</el-tag></div>
-    </el-card>
-
-    <el-card header="校对内容">
+    <el-card>
       <p v-if="canProofread">已完成校对的内容无法继续上传校对</p>
-      <p v-else>请在此处输入校对内容</p>
-      <el-input v-model="proofread.cn" type="textarea" rows="5" placeholder="请输入翻译" :disabled="canProofread" />
+      <el-button-group>
+        <el-button v-for="t,i in tag_list" :key="i" size="mini" type="primary" icon="el-icon-document" @click="handleCopy(t,$event)">
+          {{ t }}
+        </el-button>
+      </el-button-group>
+
+      <el-input v-model="proofread.cn" type="textarea" rows="5" placeholder="请输入翻译" :disabled="canProofread" style="margin:2px 0" />
       <el-button type="primary" :disabled="canProofread" @click="createProofread">提交校对</el-button>
+    </el-card>
+    <el-card>
+      <el-descriptions :column="1">
+        <el-descriptions-item label="英文原文">{{ word.en }}</el-descriptions-item>
+        <el-descriptions-item label="当前翻译">{{ word.cn }}</el-descriptions-item>
+        <el-descriptions-item label="引用文件">
+          <el-tag v-for="s in source_files" :key="s" style="margin-right: 4px;" size="small">{{ s }}</el-tag>
+        </el-descriptions-item>
+      </el-descriptions>
+      <el-descriptions :column="3">
+        <el-descriptions-item label="翻译来源">{{ word.source }}</el-descriptions-item>
+        <el-descriptions-item label="已有校对">{{ word.is_key | boolFilter }}</el-descriptions-item>
+        <el-descriptions-item label="已确认">{{ word.is_key | boolFilter }}</el-descriptions-item>
+      </el-descriptions>
     </el-card>
 
     <el-card header="校对列表">
@@ -116,6 +123,7 @@
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
 import { fetchSourceFiles, fetchList, replaceTranslate } from '@/api/words'
 import { createProofread, fetchProofreadList, acceptProofread } from '@/api/proofread'
+import clip from '@/utils/clipboard' // use clipboard directly
 
 import waves from '@/directive/waves' // waves directive
 import { parseTime } from '@/utils'
@@ -172,7 +180,7 @@ export default {
       tableKey: 0,
       list: null,
       total: 0,
-      loading: true,
+      loading: false,
       proofreadLoading: true,
       proofreadList: null,
       relationLoading: true,
@@ -191,21 +199,8 @@ export default {
         cn: '',
         modified_by: ''
       },
-      dialogFormVisible: false,
-      dialogStatus: '',
-      textMap: {
-        update: 'Edit',
-        create: 'Create'
-      },
       source_files: [],
-      dialogPvVisible: false,
-      pvData: [],
-      rules: {
-        type: [{ required: true, message: 'type is required', trigger: 'change' }],
-        timestamp: [{ type: 'date', required: true, message: 'timestamp is required', trigger: 'change' }],
-        title: [{ required: true, message: 'title is required', trigger: 'blur' }]
-      },
-      downloadLoading: false
+      tag_list: []
     }
   },
   computed: {
@@ -216,23 +211,16 @@ export default {
   watch: {
     word: {
       handler: function(val) {
-        this.id = val.id
-        this.proofread = {
-          id: undefined,
-          cn: val.cn,
-          modified_by: ''
-        }
-        this.getSourceFiles()
-        this.getProofreadList()
-        if (this.currentFile !== '') {
-          this.getRelationList()
-        }
+        this.loadNewWord(val)
       },
       deep: true
     }
   },
   mounted() {
     this.role = this.$store.getters.roles
+    if (this.word.id !== undefined) {
+      this.loadNewWord(this.word)
+    }
   },
   methods: {
     // getInfo() {
@@ -247,6 +235,23 @@ export default {
     //     }, 1.5 * 1000)
     //   })
     // },
+    loadNewWord(val) {
+      this.loading = true
+      this.id = val.id
+      this.proofread = {
+        id: undefined,
+        cn: val.cn,
+        modified_by: ''
+      }
+      this.getSourceFiles()
+      this.getProofreadList()
+      if (this.currentFile !== '') {
+        this.getRelationList()
+      }
+      const regex = /{@(.*?)}/g
+      const matches = val.en.match(regex)
+      this.tag_list = matches
+    },
     getProofreadList() {
       this.proofreadQuery.eq_word_id = this.word.id
       this.proofreadLoading = true
@@ -389,20 +394,6 @@ export default {
       })
       this.word.is_key = true
     },
-    handleDownload() {
-      this.downloadLoading = true
-      import('@/vendor/Export2Excel').then(excel => {
-        const tHeader = ['timestamp', 'title', 'type', 'importance', 'status']
-        const filterVal = ['timestamp', 'title', 'type', 'importance', 'status']
-        const data = this.formatJson(filterVal)
-        excel.export_json_to_excel({
-          header: tHeader,
-          data,
-          filename: 'table-list'
-        })
-        this.downloadLoading = false
-      })
-    },
     formatJson(filterVal) {
       return this.list.map(v => filterVal.map(j => {
         if (j === 'timestamp') {
@@ -415,6 +406,9 @@ export default {
     getSortClass(key) {
       const sort = this.proofreadQuery.sort
       return sort === `+${key}` ? 'ascending' : 'descending'
+    },
+    handleCopy(text, event) {
+      clip(text, event)
     }
   }
 
