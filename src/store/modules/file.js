@@ -37,18 +37,18 @@ const actions = {
       })
     })
   },
-  loadJsonFile({ commit, state }, file) {
+  loadJsonFile({ commit, state }, { file, source }) {
     return new Promise((resolve, reject) => {
-      if (state.files[file] !== undefined) {
-        resolve(state.files[file])
+      if (state.files[file + source] !== undefined) {
+        resolve(state.files[file + source])
         return
       }
-      fetchFileInfo(file).then(response => {
+      fetchFileInfo(file, source).then(response => {
         const { data } = response
         if (!data) {
           reject('No data')
         }
-        commit('ADD_JSON_FILES', file, data)
+        commit('ADD_JSON_FILES', file + source, data)
         resolve(data)
       }).catch(error => {
         reject(error)

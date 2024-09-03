@@ -1,7 +1,7 @@
 <template>
   <el-container v-loading="loading" element-loading-text="加载时间较长，请耐心等待..." :style="'height: '+ containerHeight+'px'">
     <el-drawer
-      title="我是标题"
+      title="文件列表"
       :visible.sync="drawVisible"
       direction="rtl"
       style="height: 100%;"
@@ -19,6 +19,9 @@
           <span style="color: yellow">黄色</span>：有校对未确认的文本。
           <span style="color: blue;">蓝色</span>：未确认文本。
         </p>
+        <el-input v-model="source" placeholder="请输入来源简写(如:PHB)" style="width: 200px;" />
+        <el-button type="primary" size="small" @click="loadJsonFile(file_path)">筛选来源</el-button>
+
       </div>
       <!-- <json-editor ref="jsonEditor" v-model="json_txt" /> -->
       <split-pane split="horizontal" :style="'height: '+ (containerHeight - 40)+'px'">
@@ -80,7 +83,8 @@ export default {
         modified_at: '',
         is_key: 0,
         proofread: 0
-      }
+      },
+      source: ''
     }
   },
   computed: {
@@ -121,35 +125,44 @@ export default {
   },
   methods: {
     handleNodeClick(data) {
-      console.log(data.children)
       if (data.children.length > 0) {
         return
       }
+      this.loadJsonFile(data.path)
+    },
+    loadJsonFile(file_path) {
+      if (file_path === '') {
+        this.$message.error('请选择文件')
+        return
+      }
       this.json_html = ''
-      this.file_path = data.path
-      if (this.files[data.path] !== undefined && this.files[data.path] !== '') {
-        this.json_txt = this.files[data.path]
+      if (this.files[file_path] !== undefined && this.files[file_path] !== '') {
+        this.json_txt = this.files[file_path]
       } else {
-        this.$store.dispatch('file/loadJsonFile', data.path).then(file_data => {
+        this.$store.dispatch('file/loadJsonFile', { 'file': file_path, 'source': this.source }).then(file_data => {
           this.json_txt = file_data
           this.loading = true
-
-          fetchFileSource(data.path).then(words_data => {
-            console.log(words_data)
-            const words_ = {}
-            words_data.data.items.map(d => {
-              words_[d.words.en] = d.words
-            })
-            words_data.data.items.map(d => {
-              if (d.words.en.toLowerCase() in words_) {
-                words_[d.words.en.toLowerCase()] = d.words
-              }
-            })
-            this.words = words_
+          if (this.file_path === file_path) {
             this.getJsonHtml()
-          }).finally(() => {
             this.loading = false
-          })
+          } else {
+            fetchFileSource(file_path).then(words_data => {
+              const words_ = {}
+              words_data.data.items.map(d => {
+                words_[d.words.en] = d.words
+              })
+              words_data.data.items.map(d => {
+                if (d.words.en.toLowerCase() in words_) {
+                  words_[d.words.en.toLowerCase()] = d.words
+                }
+              })
+              this.words = words_
+              this.getJsonHtml()
+            }).finally(() => {
+              this.loading = false
+            })
+          }
+          this.file_path = file_path
         }
         ).catch(error => {
           console.log(error)

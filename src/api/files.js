@@ -7,10 +7,10 @@ export function fetchFiles(query) {
     params: query
   })
 }
-export function fetchFileInfo(file_name) {
+export function fetchFileInfo(file_name, source) {
   return request({
     url: '/json',
     method: 'get',
-    params: { 'file': file_name }
+    params: { 'file': file_name, source }
   })
 }
