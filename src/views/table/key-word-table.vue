@@ -19,9 +19,9 @@
               <el-option :key="1" :label="'已校对'" :value="1" />
               <el-option :key="0" :label="'未校对'" :value="0" />
             </el-select>
-            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" clearable filterable placeholder="引用文件" @change="handleFilter">
+            <!-- <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" clearable filterable placeholder="引用文件" @change="handleFilter">
               <el-option v-for="item in files" :key="item" :label="item" :value="item" />
-            </el-select>
+            </el-select> -->
             <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
               <el-option v-for="item in sortOptions" :key="item.key" :label="item.label" :value="item.key" />
             </el-select>
@@ -268,19 +268,19 @@ export default {
     }
   },
   created() {
-    this.loadFiles()
+    // this.loadFiles()
     this.getList()
   },
   methods: {
-    loadFiles() {
-      this.$store.dispatch('file/loadJsonFiles').then(files => {
-        console.log(files)
-        for (const k in files) {
-          this.files.push(k)
-        }
-        // this.files = files
-      })
-    },
+    // loadFiles() {
+    //   this.$store.dispatch('file/loadJsonFiles').then(files => {
+    //     console.log(files)
+    //     for (const k in files) {
+    //       this.files.push(k)
+    //     }
+    //     // this.files = files
+    //   })
+    // },
     getList() {
       this.listLoading = true
       fetchList(this.listQuery).then(response => {

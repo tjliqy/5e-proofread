@@ -18,9 +18,9 @@
               <el-option :key="1" :label="'已校对'" :value="1" />
               <el-option :key="0" :label="'未校对'" :value="0" />
             </el-select>
-            <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" clearable filterable placeholder="引用文件" @change="handleFilter">
+            <!-- <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" clearable filterable placeholder="引用文件" @change="handleFilter">
               <el-option v-for="item in files" :key="item" :label="item" :value="item" />
-            </el-select>
+            </el-select> -->
             <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
               <el-option v-for="item in sortOptions" :key="item.key" :label="item.label" :value="item.key" />
             </el-select>
@@ -75,29 +75,6 @@
                 <span>{{ row.is_key | boolFilter }}</span>
               </template>
             </el-table-column>
-            <!-- <el-table-column v-if="showReviewer" label="Reviewer" width="110px" align="center">
-              <template slot-scope="{row}">
-                <span style="color:red;">{{ row.reviewer }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="Imp" width="80px">
-              <template slot-scope="{row}">
-                <svg-icon v-for="n in + row.importance" :key="n" icon-class="star" class="meta-item__icon" />
-              </template>
-            </el-table-column>
-            <el-table-column label="Readings" align="center" width="95">
-              <template slot-scope="{row}">
-                <span v-if="row.pageviews" class="link-type" @click="handleFetchPv(row.pageviews)">{{ row.pageviews }}</span>
-                <span v-else>0</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="Status" class-name="status-col" width="100">
-              <template slot-scope="{row}">
-                <el-tag :type="row.status | statusFilter">
-                  {{ row.status }}
-                </el-tag>
-              </template>
-            </el-table-column> -->
             <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
               <!-- <template slot-scope="{row,$index}"> -->
               <template slot-scope="{row}">
@@ -238,9 +215,10 @@ export default {
       statusOptions: ['published', 'draft', 'deleted'],
       showReviewer: false,
       temp: {
-        id: undefined,
-        en: '',
-        cn: '',
+        sql_id: undefined,
+        en_str: '',
+        cn_str: '',
+        source: '',
         create_at: '',
         modified_at: '',
         is_key: 0,
@@ -263,19 +241,19 @@ export default {
     }
   },
   created() {
-    this.loadFiles()
+    // this.loadFiles()
     this.getList()
   },
   methods: {
-    loadFiles() {
-      this.$store.dispatch('file/loadJsonFiles').then(files => {
-        console.log(files)
-        for (const k in files) {
-          this.files.push(k)
-        }
-        // this.files = files
-      })
-    },
+    // loadFiles() {
+    //   this.$store.dispatch('file/loadJsonFiles').then(files => {
+    //     console.log(files)
+    //     for (const k in files) {
+    //       this.files.push(k)
+    //     }
+    //     // this.files = files
+    //   })
+    // },
     getList() {
       this.listLoading = true
       fetchList(this.listQuery).then(response => {
@@ -356,7 +334,16 @@ export default {
       // this.$router.push({ path: '/table/word/' + row.id })
       this.dialogFormVisible = true
       this.$nextTick(() => {
-        this.temp = row
+        this.temp = {
+          sql_id: row.id,
+          en_str: row.en,
+          cn_str: row.cn,
+          source: row.source,
+          create_at: row.create_at,
+          modified_at: row.modified_at,
+          is_key: row.is_key,
+          proofread: row.proofread
+        }
       })
     },
     handleUpdate(row) {

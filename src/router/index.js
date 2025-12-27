@@ -71,7 +71,7 @@ export const constantRoutes = [
   {
     path: '/',
     component: Layout,
-    redirect: '/table/words',
+    redirect: '/table/menu',
     children: []
   },
   {

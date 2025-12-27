@@ -1,16 +1,9 @@
 import request from '@/utils/request'
 
-export function fetchFiles(query) {
+export function fetchFiles(file_name) {
   return request({
     url: '/json',
     method: 'get',
-    params: query
-  })
-}
-export function fetchFileInfo(file_name, source) {
-  return request({
-    url: '/json',
-    method: 'get',
-    params: { 'file': file_name, source }
+    params: { 'file': file_name }
   })
 }

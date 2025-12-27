@@ -5,7 +5,7 @@ import Layout from '@/layout'
 const tableRouter = {
   path: '/table',
   component: Layout,
-  redirect: '/table/word-table',
+  redirect: '/table/menu',
   name: 'Table',
   meta: {
     title: 'Table',
@@ -31,6 +31,18 @@ const tableRouter = {
     //   meta: { title: 'Inline Edit' }
     // },
     {
+      path: 'menu',
+      name: 'FileMenu',
+      component: () => import('@/views/Menu'),
+      meta: { title: '文件翻译进度', affix: true }
+    },
+    {
+      path: 'files',
+      component: () => import('@/views/file/File'),
+      name: 'FileList',
+      meta: { title: '文件校对' }
+    },
+    {
       path: 'words',
       component: () => import('@/views/table/word-table'),
       name: 'WordTable',
@@ -42,12 +54,6 @@ const tableRouter = {
       name: 'Word',
       hidden: true,
       meta: { title: '单词校对' }
-    },
-    {
-      path: 'files',
-      component: () => import('@/views/file/list'),
-      name: 'FileList',
-      meta: { title: '文件列表', affix: true }
     },
     {
       path: 'key-words',

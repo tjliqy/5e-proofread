@@ -1,6 +1,6 @@
 <template>
   <div v-loading="loading">
-    <el-card>
+    <el-card background-color="#f5f7fa">
       <p v-if="canProofread">已完成校对的内容无法继续上传校对</p>
       <el-button-group>
         <el-button v-for="t,i in tag_list" :key="i" size="mini" type="primary" icon="el-icon-document" @click="handleCopy(t,$event)">
@@ -13,8 +13,8 @@
     </el-card>
     <el-card>
       <el-descriptions :column="1">
-        <el-descriptions-item label="英文原文">{{ word.en }}</el-descriptions-item>
-        <el-descriptions-item label="当前翻译">{{ word.cn }}</el-descriptions-item>
+        <el-descriptions-item label="英文原文">{{ word.en_str }}</el-descriptions-item>
+        <el-descriptions-item label="当前翻译">{{ word.cn_str }}</el-descriptions-item>
         <el-descriptions-item label="引用文件">
           <el-tag v-for="s in source_files" :key="s" style="margin-right: 4px;" size="small">{{ s }}</el-tag>
         </el-descriptions-item>
@@ -79,18 +79,18 @@
       >
         <el-table-column label="英文" align="center">
           <template slot-scope="{row}">
-            <span>{{ row.en }}</span>
+            <span>{{ row.en_str }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="翻译" align="center">
           <template slot-scope="{row}">
-            <span>{{ row.cn }}</span>
+            <span>{{ row.cn_str }}</span>
           </template>
         </el-table-column>
         <el-table-column label="是否确认" align="center">
           <template slot-scope="{row}">
-            <span>{{ row.proofread | boolFilter }}</span>
+            <span>{{ row.is_proofread | boolFilter }}</span>
           </template>
         </el-table-column>
         <el-table-column label="来源" align="center">
@@ -157,14 +157,14 @@ export default {
       type: Object,
       default(rowProps) {
         return {
-          id: undefined,
-          en: '',
-          cn: '',
+          sql_id: undefined,
+          en_str: '',
+          cn_str: '',
           source: '',
           create_at: '',
           modified_at: '',
           is_key: 0,
-          proofread: 0
+          is_proofread: 0
         }
       }
     },
@@ -195,7 +195,7 @@ export default {
         sort: '-modified_at'
       },
       proofread: {
-        id: undefined,
+        sql_id: undefined,
         cn: '',
         modified_by: ''
       },
@@ -205,7 +205,7 @@ export default {
   },
   computed: {
     canProofread() {
-      return this.word.id !== undefined && this.word.proofread === 1 && this.role !== 'admin'
+      return this.word.sql_id !== undefined && this.word.is_proofread === 1 && this.role !== 'admin'
     }
   },
   watch: {
@@ -218,7 +218,7 @@ export default {
   },
   mounted() {
     this.role = this.$store.getters.roles
-    if (this.word.id !== undefined) {
+    if (this.word.sql_id !== undefined) {
       this.loadNewWord(this.word)
     }
   },
@@ -237,10 +237,10 @@ export default {
     // },
     loadNewWord(val) {
       this.loading = true
-      this.id = val.id
+      this.id = val.sql_id
       this.proofread = {
-        id: undefined,
-        cn: val.cn,
+        sql_id: undefined,
+        cn: val.cn_str,
         modified_by: ''
       }
       this.getSourceFiles()
@@ -249,12 +249,13 @@ export default {
         this.getRelationList()
       }
       const regex = /{@(.*?)}/g
-      const matches = val.en.match(regex)
+      const matches = val.en_str.match(regex)
       this.tag_list = matches
     },
     getProofreadList() {
-      this.proofreadQuery.eq_word_id = this.word.id
+      this.proofreadQuery.eq_word_id = this.word.sql_id
       this.proofreadLoading = true
+      console.log(this.proofreadQuery)
       fetchProofreadList(this.proofreadQuery).then(response => {
         this.proofreadList = response.data.items
         this.total = response.data.count
@@ -263,8 +264,8 @@ export default {
       })
     },
     getRelationList() {
-      this.relationQuery.eq_en = this.word.en
-      this.relationQuery.neq_id = this.word.id
+      this.relationQuery.eq_en = this.word.en_str
+      this.relationQuery.neq_id = this.word.sql_id
       this.relationLoading = true
       fetchList(this.relationQuery).then(response => {
         this.relationList = response.data.items
@@ -277,7 +278,7 @@ export default {
       this.loading = true
       console.log(this.role)
       this.source_files.splice(0)
-      fetchSourceFiles(this.word.id).then(response => {
+      fetchSourceFiles(this.word.sql_id).then(response => {
         const files = response.data.items
         for (let i = 0; i < files.length; i++) {
           this.source_files.push(files[i].file)
@@ -299,8 +300,8 @@ export default {
           message: '已采纳:' + row.cn,
           type: 'success'
         })
-        this.word.proofread = 1
-        this.word.cn = row.cn
+        this.word.is_proofread = 1
+        this.word.cn_str = row.cn
         this.getProofreadList()
       }).finally(() => {
         this.loading = false
@@ -310,8 +311,8 @@ export default {
       this.loading = true
       const data = {
         file: this.currentFile,
-        word_id: this.word.id,
-        new_word_id: row.id
+        word_id: this.word.sql_id,
+        new_word_id: row.sql_id
       }
       replaceTranslate(data).then(() => {
         this.loading = false
@@ -319,8 +320,8 @@ export default {
           message: '已采纳:' + row.cn,
           type: 'success'
         })
-        this.word.proofread = 1
-        this.word.cn = row.cn
+        this.word.is_proofread = 1
+        this.word.cn_str = row.cn
         this.getProofreadList()
       }).finally(() => {
         this.loading = false
@@ -365,11 +366,11 @@ export default {
       // }
       const tempData = Object.assign({}, this.proofread)
       tempData.modified_by = this.word.modified_by
-      tempData.word_id = this.word.id
+      tempData.word_id = this.word.sql_id
       tempData.modified_at = undefined
       tempData.modified_by = undefined
-      if (countOccurrences(this.word.en, '{@') !== countOccurrences(this.proofread.cn, '{@') ||
-      countOccurrences(this.word.en, '}') !== countOccurrences(this.proofread.cn, '}')) {
+      if (countOccurrences(this.word.en_str, '{@') !== countOccurrences(this.proofread.cn, '{@') ||
+      countOccurrences(this.word.en_str, '}') !== countOccurrences(this.proofread.cn, '}')) {
         this.$notify({
           title: 'Error',
           message: '无法提交，请核对文本中的标记符（类似{@spell light}）',

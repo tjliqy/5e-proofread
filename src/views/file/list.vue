@@ -19,9 +19,6 @@
           <span style="color: yellow">黄色</span>：有校对未确认的文本。
           <span style="color: blue;">蓝色</span>：未确认文本。
         </p>
-        <el-input v-model="source" placeholder="请输入来源简写(如:PHB)" style="width: 200px;" />
-        <el-button type="primary" size="small" @click="loadJsonFile(file_path)">筛选来源</el-button>
-
       </div>
       <!-- <json-editor ref="jsonEditor" v-model="json_txt" /> -->
       <split-pane split="horizontal" :style="'height: '+ (containerHeight - 40)+'px'">
@@ -93,31 +90,64 @@ export default {
     },
     getFilesMenu() {
       const files = []
-      const tmp_dirs = []
+
+      // 辅助函数：递归查找或创建目录结构
+      const findOrCreatePath = (pathSegments, currentLevel, fullPath) => {
+        if (pathSegments.length === 0) return
+
+        const segment = pathSegments[0]
+        const isLastSegment = pathSegments.length === 1
+
+        // 查找当前层级是否已存在该段
+        let existingNode = currentLevel.find(node => node.label === segment)
+
+        if (!existingNode) {
+          // 创建新节点
+          existingNode = {
+            label: segment,
+            children: [],
+            path: isLastSegment ? fullPath : '' // 只有文件才有完整路径
+          }
+          currentLevel.push(existingNode)
+        }
+
+        // 如果不是最后一段，继续递归创建下一级目录
+        if (!isLastSegment) {
+          findOrCreatePath(pathSegments.slice(1), existingNode.children, fullPath)
+        }
+      }
+      // 处理所有文件路径
       for (const f in this.files) {
         if (f.includes('/')) {
-          const dir = f.split('/')[0]
-          if (tmp_dirs.indexOf(dir) > -1) {
-            for (const i in files) {
-              if (files[i].label === dir) {
-                files[i].children.push({ label: f.split('/')[1], children: [], path: f })
-                break
-              }
-            }
-          } else {
-            tmp_dirs.push(dir)
-            files.push({ label: dir, children: [{ label: f.split('/')[1], children: [], path: f }] })
-          }
+          // 处理带目录的文件路径
+          const pathSegments = f.split('/')
+          findOrCreatePath(pathSegments, files, f)
         } else {
+          // 处理根目录下的文件
           files.push({ label: f, children: [], path: f })
         }
       }
       return files
     }
   },
+  watch: {
+    // 监听路由参数变化
+    '$route.query.file_path'(newPath) {
+      if (newPath) {
+        this.loadJsonFile(newPath)
+      }
+    }
+  },
+  // 添加created钩子和watch路由参数变化的逻辑
+  created() {
+    // 检查路由参数，如果有file_path则直接加载该文件
+    if (this.$route.query.file_path) {
+      this.loadJsonFile(this.$route.query.file_path)
+    }
+  },
   mounted() {
     this.$store.dispatch('file/loadJsonFiles').then(files => {
-      this.files = files
+      this.files = files.map(f => f.file)
     }
     ).catch(error => {
       console.log(error)
@@ -139,13 +169,18 @@ export default {
       if (this.files[file_path] !== undefined && this.files[file_path] !== '') {
         this.json_txt = this.files[file_path]
       } else {
-        this.$store.dispatch('file/loadJsonFile', { 'file': file_path, 'source': this.source }).then(file_data => {
+        this.$store.dispatch('file/loadJsonFile', { 'file_path': file_path }).then(file_data => {
           this.json_txt = file_data
           this.loading = true
           if (this.file_path === file_path) {
             this.getJsonHtml()
             this.loading = false
           } else {
+            // 判断json_txt是否有[_meta][origin_file],如果有，则file_path改为[_meta][origin_file]
+            console.log(this.json_txt.file['_meta'])
+            if (this.json_txt.file['_meta'] !== undefined && this.json_txt.file['_meta']['origin_file'] !== undefined) {
+              file_path = this.json_txt.file['_meta']['origin_file']
+            }
             fetchFileSource(file_path).then(words_data => {
               const words_ = {}
               words_data.data.items.map(d => {
