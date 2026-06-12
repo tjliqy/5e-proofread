@@ -12,19 +12,15 @@
           <template slot="paneL" style="overflow-y:scroll;">
             <div
               ref="leftPane"
-              style="overflow-y:scroll;height:100%; padding: 10px;"
+              class="bilingual-preview-pane"
               @scroll.passive="handlePaneScroll"
               @contextmenu="handleTextContextMenu"
             >
-              <div class="legend-panel">
-                <span class="legend-item"><span class="legend-dot legend-dot--green" />已确认文本</span>
-                <span class="legend-item"><span class="legend-dot legend-dot--orange" />有校对未确认的文本</span>
-                <span class="legend-item"><span class="legend-dot legend-dot--blue" />未确认文本</span>
-              </div>
-              <translate-line
-                v-if="json_html"
-                :json-html="json_html"
-                :words="words"
+              <render-preview
+                :file-path="file_path"
+                :english-content="json_txt"
+                :chinese-content="cn_json_txt"
+                :jobs="jobSequence"
                 :current-word-key="activeWordKey"
                 @to-proofread="toProofread"
               />
@@ -43,6 +39,7 @@
                 v-else
                 ref="proofread"
                 :word="temp"
+                :jobs="jobSequence"
                 :current-file="file_path"
                 :has-next-unproofread="hasNextUnproofread"
                 :has-previous-unproofread="hasPreviousUnproofread"
@@ -56,25 +53,6 @@
         </split-pane>
       </el-main>
     </el-container>
-    <button
-      type="button"
-      class="preview-toggle"
-      :class="{ 'preview-toggle--open': previewDrawerOpen }"
-      @click="togglePreviewDrawer"
-    >
-      {{ previewDrawerOpen ? '收起预览' : '展开预览' }}
-    </button>
-    <div class="preview-drawer" :class="{ 'preview-drawer--open': previewDrawerOpen }">
-      <div class="preview-drawer__header">
-        <span>高级模式预览</span>
-        <button type="button" class="preview-drawer__close" @click="togglePreviewDrawer">
-          关闭
-        </button>
-      </div>
-      <div class="preview-drawer__body">
-        <render-preview :file-path="file_path" />
-      </div>
-    </div>
     <div
       v-if="textContextMenu.visible"
       class="text-context-menu"
@@ -91,12 +69,11 @@
 // import JsonEditor from '@/components/JsonEditor'
 import Proofread from '@/components/Proofread'
 import splitPane from 'vue-splitpane'
-import TranslateLine from '@/components/TranslateLine'
 import RenderPreview from '@/components/RenderPreview'
 
 export default {
   name: 'FileList',
-  components: { Proofread, splitPane, TranslateLine, RenderPreview },
+  components: { Proofread, splitPane, RenderPreview },
   data() {
     return {
       drawVisible: false,
@@ -108,7 +85,7 @@ export default {
       },
       file_path: '',
       json_txt: '',
-      json_html: [],
+      cn_json_txt: '',
       en_in_file: '',
       loading: false,
       temp: {
@@ -123,7 +100,6 @@ export default {
       source: '',
       jobSequence: [],
       headerCollapsed: false,
-      previewDrawerOpen: false,
       textContextMenu: {
         visible: false,
         left: 0,
@@ -245,10 +221,9 @@ export default {
       this.headerCollapsed = false
       this.updateHeaderCompact(false)
       this.loading = true
-      this.json_html = []
+      this.cn_json_txt = ''
       if (!force && this.files[file_path] !== undefined && this.files[file_path] !== '') {
         this.json_txt = this.files[file_path]
-        this.getJsonHtml()
         this.file_path = file_path
         this.loading = false
       } else {
@@ -256,6 +231,7 @@ export default {
           console.log(file_data)
           const data = file_data[0]
           this.json_txt = data.json_content
+          this.cn_json_txt = data.cn_content
           this.jobSequence = Array.isArray(data.job_list) ? data.job_list : []
           this.$store.dispatch('file/setCurrentFileProgress', {
             filePath: file_path,
@@ -264,7 +240,6 @@ export default {
             proofread: data.proofread || 0
           })
           if (this.file_path === file_path) {
-            this.getJsonHtml()
             this.loading = false
           } else {
             const words_ = {}
@@ -273,7 +248,6 @@ export default {
               words_[job.en_str.toLowerCase()] = job
             })
             this.words = words_
-            this.getJsonHtml()
             this.selectInitialUnproofread()
             this.loading = false
           }
@@ -299,25 +273,69 @@ export default {
     },
     handleWordUpdated(word) {
       if (!word || !word.en_str) return
+      const { previousCnStr, ...updatedWord } = word
       const wordKey = word.en_str.toLowerCase()
+      const previousWord = this.words[wordKey] || this.jobSequence.find(
+        job => job.en_str && job.en_str.toLowerCase() === wordKey
+      )
+      const previousCn = previousCnStr || (previousWord && previousWord.cn_str)
+      if (previousCn && updatedWord.cn_str && previousCn !== updatedWord.cn_str) {
+        this.cn_json_txt = this.replaceChinesePreviewText(this.cn_json_txt, previousCn, updatedWord.cn_str)
+      }
       this.jobSequence = this.jobSequence.map((job) => {
         if (job.en_str.toLowerCase() !== wordKey) return job
         return {
           ...job,
-          ...word
+          ...updatedWord
         }
       })
       this.words = {
         ...this.words,
         [wordKey]: {
           ...(this.words[wordKey] || {}),
-          ...word
+          ...updatedWord
         }
       }
       this.temp = {
         ...this.temp,
-        ...word
+        ...updatedWord
       }
+    },
+    replaceChinesePreviewText(content, previousText, nextText) {
+      if (!content || !previousText || previousText === nextText) {
+        return content
+      }
+      const wasString = typeof content === 'string'
+      let parsedContent = content
+      if (wasString) {
+        try {
+          parsedContent = JSON.parse(content)
+        } catch (error) {
+          console.error('更新中文预览失败，中文 JSON 无法解析:', error)
+          return content
+        }
+      }
+
+      const replaceText = (value) => {
+        if (typeof value === 'string') {
+          return value.includes(previousText)
+            ? value.split(previousText).join(nextText)
+            : value
+        }
+        if (Array.isArray(value)) {
+          return value.map(item => replaceText(item))
+        }
+        if (value && typeof value === 'object') {
+          return Object.keys(value).reduce((result, key) => {
+            result[key] = replaceText(value[key])
+            return result
+          }, {})
+        }
+        return value
+      }
+
+      const updatedContent = replaceText(parsedContent)
+      return wasString ? JSON.stringify(updatedContent) : updatedContent
     },
     selectInitialUnproofread() {
       const nextIndex = this.findNextUnproofreadIndex(-1)
@@ -343,9 +361,6 @@ export default {
         return
       }
       this.selectJobAtIndex(previousIndex)
-    },
-    togglePreviewDrawer() {
-      this.previewDrawerOpen = !this.previewDrawerOpen
     },
     findCurrentWordIndex() {
       if (!this.activeWordKey) return -1
@@ -558,112 +573,9 @@ export default {
     align-items: center;
   }
 
-  .preview-toggle {
-    position: absolute;
-    top: 18px;
-    right: 0;
-    z-index: 5;
-    border: 0;
-    border-radius: 12px 0 0 12px;
-    background: rgba(31, 42, 55, 0.86);
-    color: #fff;
-    padding: 10px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: right 0.2s ease, background 0.2s ease;
-  }
-
-  .preview-toggle:hover {
-    background: rgba(31, 42, 55, 0.95);
-  }
-
-  .preview-toggle--open {
-    right: min(38vw, 540px);
-  }
-
-  .preview-drawer {
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 4;
-    width: min(38vw, 540px);
+  .bilingual-preview-pane {
     height: 100%;
-    background: rgba(255, 255, 255, 0.98);
-    border-left: 1px solid #dce4ef;
-    box-shadow: -12px 0 32px rgba(31, 42, 55, 0.14);
-    transform: translateX(100%);
-    transition: transform 0.22s ease;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .preview-drawer--open {
-    transform: translateX(0);
-  }
-
-  .preview-drawer__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 14px;
-    border-bottom: 1px solid #e4eaf3;
-    font-size: 13px;
-    font-weight: 700;
-    color: #334155;
-    background: linear-gradient(180deg, #f8fbff 0%, #f1f5fb 100%);
-  }
-
-  .preview-drawer__close {
-    border: 0;
-    background: transparent;
-    color: #607086;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .preview-drawer__body {
-    flex: 1;
-    min-height: 0;
-    background: #fff;
-  }
-
-  .legend-panel {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin: 0 0 10px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: #f7f9fc;
-    border: 1px solid #e4eaf3;
-    font-size: 12px;
-    color: #506078;
-  }
-
-  .legend-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .legend-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    flex-shrink: 0;
-  }
-
-  .legend-dot--green {
-    background: #67c23a;
-  }
-
-  .legend-dot--orange {
-    background: #e6a23c;
-  }
-
-  .legend-dot--blue {
-    background: #409eff;
+    overflow: hidden;
   }
 
   .text-context-menu {

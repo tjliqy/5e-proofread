@@ -190,6 +190,10 @@ export default {
         }
       }
     },
+    jobs: {
+      type: Array,
+      default: () => []
+    },
     currentFile: {
       type: String,
       default: ''
@@ -248,6 +252,9 @@ export default {
     },
     'proofread.cn': function() {
       this.updateTagList()
+    },
+    jobs() {
+      this.updateTagList()
     }
   },
   mounted() {
@@ -277,15 +284,23 @@ export default {
         cn: val.cn_str,
         modified_by: ''
       }
-      this.getSourceFiles()
-      this.getProofreadList()
+      if (val.sql_id !== undefined && val.sql_id !== null) {
+        this.getSourceFiles()
+        this.getProofreadList()
+      } else {
+        this.source_files = []
+        this.proofreadList = []
+        this.total = 0
+        this.loading = false
+        this.proofreadLoading = false
+      }
       if (this.currentFile !== '') {
         this.getRelationList()
       }
       this.updateTagList()
     },
-    getProofreadList() {
-      this.proofreadQuery.eq_word_id = this.word.sql_id
+    getProofreadList(wordId = this.word.sql_id) {
+      this.proofreadQuery.eq_word_id = wordId
       this.proofreadLoading = true
       console.log(this.proofreadQuery)
       fetchProofreadList(this.proofreadQuery).then(response => {
@@ -332,6 +347,7 @@ export default {
       this.createProofread()
     },
     handleAccepted(row) {
+      const previousCnStr = this.word.cn_str
       this.loading = true
       acceptProofread({ ...row, current_file: this.currentFile }).then((response) => {
         this.loading = false
@@ -342,7 +358,7 @@ export default {
         this.word.is_proofread = 1
         this.word.is_key = 1
         this.word.cn_str = row.cn
-        this.$emit('word-updated', { ...this.word })
+        this.$emit('word-updated', { ...this.word, previousCnStr })
         this.$emit('progress-updated', response.data.progress || {})
         this.getProofreadList()
       }).finally(() => {
@@ -350,6 +366,7 @@ export default {
       })
     },
     handleReplace(row) {
+      const previousCnStr = this.word.cn_str
       this.loading = true
       const data = {
         file: this.currentFile,
@@ -364,6 +381,7 @@ export default {
         })
         this.word.is_proofread = 1
         this.word.cn_str = row.cn
+        this.$emit('word-updated', { ...this.word, previousCnStr })
         this.getProofreadList()
       }).finally(() => {
         this.loading = false
@@ -412,6 +430,9 @@ export default {
       const tempData = Object.assign({}, this.proofread)
       tempData.modified_by = this.word.modified_by
       tempData.word_id = this.word.sql_id
+      tempData.en_str = this.word.en_str
+      tempData.uid = this.word.uid
+      tempData.tag = this.word.tag
       tempData.current_file = this.currentFile
       tempData.modified_at = undefined
       tempData.modified_by = undefined
@@ -428,6 +449,7 @@ export default {
       this.submitting = true
       createProofread(tempData).then((response) => {
         const autoAccepted = response.data.auto_accepted === true
+        const createdWord = response.data.word || {}
         this.$notify({
           title: 'Success',
           message: autoAccepted ? '校对已提交并自动确认' : '校对已提交',
@@ -441,12 +463,13 @@ export default {
         }
         this.$emit('word-updated', {
           ...this.word,
-          cn_str: autoAccepted ? tempData.cn : this.word.cn_str,
+          sql_id: createdWord.id || this.word.sql_id,
+          cn_str: tempData.cn,
           is_key: 1,
           is_proofread: autoAccepted ? 1 : this.word.is_proofread
         })
         this.$emit('progress-updated', response.data.progress || {})
-        this.getProofreadList()
+        this.getProofreadList(createdWord.id || this.word.sql_id)
         this.$emit('next-unproofread')
       }).finally(() => {
         this.submitting = false
@@ -604,11 +627,52 @@ export default {
     },
     updateTagList() {
       const enNodes = this.parseTopLevelTags(this.word.en_str || '')
-      const cnNodes = this.parseTopLevelTags(this.proofread.cn || this.word.cn_str || '')
-      this.tag_list = this.matchTagNodes(enNodes, cnNodes).map(({ enNode, cnNode }) => ({
+      this.tag_list = enNodes.map(enNode => ({
         en: enNode.raw,
-        cn: this.buildCnTag(enNode, cnNode)
+        cn: this.findCnTagFromJobs(enNode)
       }))
+    },
+    findCnTagFromJobs(enNode) {
+      const lookups = [
+        { key: this.getTagLookupKey(enNode, true), includeSource: true },
+        { key: this.getTagLookupKey(enNode, false), includeSource: false }
+      ]
+      for (const lookup of lookups) {
+        for (const job of this.jobs) {
+          if (!job || !job.en_str || !job.cn_str || job.en_str === job.cn_str) {
+            continue
+          }
+          const enNodes = this.parseTopLevelTags(job.en_str)
+          const cnNodes = this.parseTopLevelTags(job.cn_str)
+          const matchedPairs = this.matchTagNodes(enNodes, cnNodes)
+          const pair = matchedPairs.find(({ enNode: jobEnNode }) => {
+            return jobEnNode.raw === enNode.raw ||
+              this.getTagLookupKey(jobEnNode, lookup.includeSource) === lookup.key
+          })
+          if (pair && pair.cnNode) {
+            const cnTag = this.buildCnTag(pair.enNode, pair.cnNode)
+            if (cnTag !== pair.enNode.raw) {
+              return cnTag
+            }
+          }
+        }
+      }
+      return this.buildCnTag(enNode, null)
+    },
+    getTagLookupKey(node, includeSource) {
+      if (!node) return ''
+      const parts = this.splitOutsideTags(node.value || '')
+      const entityName = this.normalizeTagLookupPart(parts[0])
+      const source = this.normalizeTagLookupPart(parts[1])
+      return includeSource
+        ? [node.tag.toLowerCase(), entityName, source].join('|')
+        : [node.tag.toLowerCase(), entityName].join('|')
+    },
+    normalizeTagLookupPart(value) {
+      return String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
     },
     handleCopy(text, event) {
       clip(text, event)
