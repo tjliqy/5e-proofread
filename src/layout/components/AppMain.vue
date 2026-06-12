@@ -1,5 +1,5 @@
 <template>
-  <section class="app-main">
+  <section :class="['app-main', { 'app-main--file-detail': isFileDetailPage }]">
     <transition name="fade-transform" mode="out-in">
       <keep-alive :include="cachedViews">
         <router-view :key="key" />
@@ -15,6 +15,9 @@ export default {
     cachedViews() {
       return this.$store.state.tagsView.cachedViews
     },
+    isFileDetailPage() {
+      return this.$route.path === '/table/files'
+    },
     key() {
       return this.$route.path
     }
@@ -24,26 +27,18 @@ export default {
 
 <style lang="scss" scoped>
 .app-main {
-  /* 50= navbar  50  */
-  min-height: calc(100vh - 50px);
+  flex: 1;
+  min-height: 0;
   width: 100%;
   position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  padding: 0 16px 16px;
+}
+
+.app-main--file-detail {
   overflow: hidden;
-}
-
-.fixed-header+.app-main {
-  padding-top: 50px;
-}
-
-.hasTagsView {
-  .app-main {
-    /* 84 = navbar + tags-view = 50 + 34 */
-    min-height: calc(100vh - 84px);
-  }
-
-  .fixed-header+.app-main {
-    padding-top: 84px;
-  }
 }
 </style>
 

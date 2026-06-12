@@ -2,7 +2,13 @@ import { fetchFiles } from '@/api/files'
 // import { reject } from 'core-js/fn/promise'
 
 const state = {
-  files: {}
+  files: {},
+  currentFilePath: '',
+  currentFileProgress: {
+    total: 0,
+    translate: 0,
+    proofread: 0
+  }
 }
 
 const mutations = {
@@ -11,14 +17,23 @@ const mutations = {
   },
   CLEAR_JSON_FILES: (state) => {
     state.files = {}
+  },
+  SET_CURRENT_FILE_PROGRESS: (state, payload) => {
+    state.currentFilePath = payload.filePath || ''
+    state.currentFileProgress = {
+      total: payload.total || 0,
+      translate: payload.translate || 0,
+      proofread: payload.proofread || 0
+    }
   }
 }
 
 const actions = {
-  loadJsonFiles({ commit, state }, { file_path }) {
+  loadJsonFiles({ commit, state }, { file_path, force = false }) {
     return new Promise((resolve, reject) => {
-      if (state.files[file_path] !== undefined) {
+      if (!force && state.files[file_path] !== undefined) {
         resolve(state.files[file_path])
+        return
       }
       fetchFiles(file_path).then(response => {
         const { data } = response
@@ -37,6 +52,9 @@ const actions = {
   },
   clearJsonFiles({ commit }) {
     commit('CLEAR_JSON_FILES')
+  },
+  setCurrentFileProgress({ commit }, payload) {
+    commit('SET_CURRENT_FILE_PROGRESS', payload)
   }
 
 }

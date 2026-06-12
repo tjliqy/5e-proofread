@@ -45,6 +45,7 @@
             :data="list"
             border
             fit
+            size="mini"
             highlight-current-row
             style="width: 100%;"
             @sort-change="sortChange"
@@ -61,7 +62,12 @@
             </el-table-column>
             <el-table-column label="翻译" align="center">
               <template slot-scope="{row}">
-                <span>{{ row.cn }}</span>
+                <inline-translation-editor
+                  :ref="`translationEditor-${row.id}`"
+                  v-model="row.editCn"
+                  :disabled="row.submitting"
+                  @submit="handleInlineSubmit(row)"
+                />
               </template>
             </el-table-column>
             <el-table-column label="修改时间" width="160px" align="center">
@@ -103,14 +109,15 @@
               </template>
             </el-table-column> -->
             <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
-              <!-- <template slot-scope="{row,$index}"> -->
               <template slot-scope="{row}">
-                <el-button type="primary" size="mini" @click="toProofread(row)">
-                  校对
+                <el-button
+                  :type="isTranslationEdited(row) ? 'success' : 'primary'"
+                  size="mini"
+                  :loading="row.submitting"
+                  @click="handleRowAction(row)"
+                >
+                  {{ isTranslationEdited(row) ? '提交' : '校对' }}
                 </el-button>
-                <!-- <router-link :to="'/table/word/'+row.id">
-                  Excel{{ $index }}
-                </router-link> -->
               </template>
             </el-table-column>
           </el-table>
@@ -180,6 +187,8 @@ import waves from '@/directive/waves' // waves directive
 import { parseTime } from '@/utils'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
 import Proofread from '@/components/Proofread'
+import InlineTranslationEditor from '@/components/InlineTranslationEditor'
+import inlineProofread from '@/utils/inline-proofread'
 
 const calendarTypeOptions = [
   { key: 'CN', display_name: 'China' },
@@ -196,7 +205,7 @@ const calendarTypeKeyValue = calendarTypeOptions.reduce((acc, cur) => {
 
 export default {
   name: 'KeyTable',
-  components: { Pagination, Proofread },
+  components: { InlineTranslationEditor, Pagination, Proofread },
   directives: { waves },
   filters: {
     statusFilter(status) {
@@ -214,6 +223,7 @@ export default {
       return b === 1 ? '是' : '否'
     }
   },
+  mixins: [inlineProofread],
   data() {
     return {
       files: [],
@@ -223,7 +233,7 @@ export default {
       listLoading: true,
       listQuery: {
         page: 1,
-        limit: 20,
+        limit: 100,
         in_en: undefined,
         in_cn: undefined,
         eq_is_key: undefined,
@@ -242,15 +252,16 @@ export default {
       statusOptions: ['published', 'draft', 'deleted'],
       showReviewer: false,
       temp: {
-        id: undefined,
-        en: '',
-        cn: '',
+        sql_id: undefined,
+        en_str: '',
+        cn_str: '',
+        source: '',
         create_at: '',
         modified_at: '',
         is_key: 0,
         proofread: 0
       },
-      wrongCn: '',
+
       dialogFormVisible: false,
       dialogStatus: '',
       textMap: {
@@ -284,7 +295,7 @@ export default {
     getList() {
       this.listLoading = true
       fetchList(this.listQuery).then(response => {
-        this.list = response.data.items
+        this.list = this.prepareInlineProofreadRows(response.data.items)
         this.total = response.data.count
 
         // Just to simulate the time of the request
@@ -295,8 +306,9 @@ export default {
     },
     handleFilter() {
       this.listQuery.page = 1
-      // this.listQuery.in_cn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : undefined
-      // this.listQuery.in_en = this.listQuery.in_en ? this.listQuery.in_en.trim() : undefined
+      this.listQuery.in_cn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : undefined
+      this.listQuery.in_en = this.listQuery.in_en ? this.listQuery.in_en.trim() : undefined
+      this.listQuery.nin_cn = this.listQuery.nin_cn ? this.listQuery.nin_cn.trim() : undefined
       this.getList()
     },
     handleModifyStatus(row, status) {
@@ -322,13 +334,14 @@ export default {
     },
     resetTemp() {
       this.temp = {
-        id: undefined,
-        importance: 1,
-        remark: '',
-        timestamp: new Date(),
-        title: '',
-        status: 'published',
-        type: ''
+        sql_id: undefined,
+        en_str: '',
+        cn_str: '',
+        source: '',
+        create_at: '',
+        modified_at: '',
+        is_key: 0,
+        proofread: 0
       }
     },
     handleCreate() {
@@ -358,10 +371,18 @@ export default {
     //   })
     // },
     toProofread(row) {
-      // this.$router.push({ path: '/table/word/' + row.id })
       this.dialogFormVisible = true
       this.$nextTick(() => {
-        this.temp = row
+        this.temp = {
+          sql_id: row.id,
+          en_str: row.en,
+          cn_str: row.cn,
+          source: row.source,
+          create_at: row.create_at,
+          modified_at: row.modified_at,
+          is_key: row.is_key,
+          proofread: row.proofread
+        }
       })
     },
     handleUpdate(row) {
@@ -373,24 +394,28 @@ export default {
         this.$refs['dataForm'].clearValidate()
       })
     },
-    handleReplace(row) {
-      if (this.listQuery.in_cn === '') {
+    handleReplace() {
+      const wrongCn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : ''
+      const rightCn = this.listQuery.nin_cn ? this.listQuery.nin_cn.trim() : ''
+      const en = this.listQuery.in_en ? this.listQuery.in_en.trim() : ''
+
+      if (!wrongCn) {
         this.$message({
           message: '请输入错误翻译',
           type: 'warning'
         })
-      } else if (this.listQuery.nin_cn === '') {
+      } else if (!rightCn) {
         this.$message({
           message: '请输入正确翻译',
           type: 'warning'
         })
-      } else if (this.listQuery.in_en === '') {
+      } else if (!en) {
         this.$message({
           message: '请输入英文',
           type: 'warning'
         })
       } else {
-        replaceKeyWords({ wrongCn: this.listQuery.in_cn, rightCn: this.listQuery.nin_cn, en: this.listQuery.in_en }).then(response => {
+        replaceKeyWords({ wrongCn, rightCn, en }).then(response => {
           const data = response.data
           this.$message({
             message: '已修正:' + data.count + '条',

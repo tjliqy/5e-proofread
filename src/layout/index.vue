@@ -1,11 +1,8 @@
 <template>
   <div :class="classObj" class="app-wrapper">
-    <div v-if="device==='mobile'&&sidebar.opened" class="drawer-bg" @click="handleClickOutside" />
-    <sidebar class="sidebar-container" />
-    <div :class="{hasTagsView:needTagsView}" class="main-container">
+    <div class="main-container workbench-shell">
       <div :class="{'fixed-header':fixedHeader}">
         <navbar />
-        <tags-view v-if="needTagsView" />
       </div>
       <app-main />
       <!-- <right-panel v-if="showSettings">
@@ -17,8 +14,8 @@
 
 <script>
 // import RightPanel from '@/components/RightPanel'
-// import { AppMain, Navbar, Settings, Sidebar, TagsView } from './components'
-import { AppMain, Navbar, Sidebar, TagsView } from './components'
+// import { AppMain, Navbar, Settings } from './components'
+import { AppMain, Navbar } from './components'
 import ResizeMixin from './mixin/ResizeHandler'
 import { mapState } from 'vuex'
 
@@ -26,11 +23,9 @@ export default {
   name: 'Layout',
   components: {
     AppMain,
-    Navbar,
+    Navbar
     // RightPanel,
     // Settings,
-    Sidebar,
-    TagsView
   },
   mixins: [ResizeMixin],
   computed: {
@@ -38,21 +33,12 @@ export default {
       sidebar: state => state.app.sidebar,
       device: state => state.app.device,
       showSettings: state => state.settings.showSettings,
-      needTagsView: state => state.settings.tagsView,
       fixedHeader: state => state.settings.fixedHeader
     }),
     classObj() {
       return {
-        hideSidebar: !this.sidebar.opened,
-        openSidebar: this.sidebar.opened,
-        withoutAnimation: this.sidebar.withoutAnimation,
         mobile: this.device === 'mobile'
       }
-    }
-  },
-  methods: {
-    handleClickOutside() {
-      this.$store.dispatch('app/closeSideBar', { withoutAnimation: false })
     }
   }
 }
@@ -74,30 +60,35 @@ export default {
     }
   }
 
-  .drawer-bg {
-    background: #000;
-    opacity: 0.3;
-    width: 100%;
-    top: 0;
-    height: 100%;
-    position: absolute;
-    z-index: 999;
-  }
-
   .fixed-header {
     position: fixed;
     top: 0;
+    left: 0;
     right: 0;
     z-index: 9;
-    width: calc(100% - #{$sideBarWidth});
-    transition: width 0.28s;
-  }
-
-  .hideSidebar .fixed-header {
-    width: calc(100% - 54px)
+    transition: right 0.24s ease;
   }
 
   .mobile .fixed-header {
     width: 100%;
   }
+</style>
+
+<style lang="scss">
+#app {
+  .app-wrapper {
+    .main-container.workbench-shell {
+      display: flex;
+      flex-direction: column;
+      margin-left: 0 !important;
+      width: 100%;
+      height: 100vh;
+      min-height: 100vh;
+      overflow: hidden;
+      box-sizing: border-box;
+      transition: padding-right 0.24s ease;
+      background: linear-gradient(180deg, #f3f7fc 0%, #eef3f8 100%);
+    }
+  }
+}
 </style>

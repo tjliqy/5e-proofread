@@ -17,6 +17,9 @@ import router from './router'
 import './icons' // icon
 import './permission' // permission control
 import './utils/error-log' // error log
+import permission from './directive/permission' // permission directive
+
+Vue.use(permission) // register global permission directive
 
 import * as filters from './filters' // global filters
 

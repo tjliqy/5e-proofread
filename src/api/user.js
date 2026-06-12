@@ -8,6 +8,29 @@ export function login(data) {
   })
 }
 
+export function register(data) {
+  return request({
+    url: '/register',
+    method: 'post',
+    data
+  })
+}
+
+export function fetchInviteCodes(params) {
+  return request({
+    url: '/invite-code',
+    method: 'get',
+    params
+  })
+}
+
+export function createInviteCode() {
+  return request({
+    url: '/invite-code',
+    method: 'post'
+  })
+}
+
 export function getInfo(token) {
   return request({
     url: '/user',

@@ -1,47 +1,39 @@
 <template>
   <div class="menu-container">
-    <div class="header-section">
-      <h2>文件翻译进度管理</h2>
-      <div class="header-actions">
-        <div class="breadcrumb">
-          <el-button
-            v-if="currentPath !== '/'"
-            type="primary"
-            size="small"
-            icon="el-icon-back"
-            @click="goBack"
-          >
-            返回上级目录
-          </el-button>
-          <span class="current-path">{{ currentPath }}</span>
-        </div>
-        <div class="search-box">
-          <el-input
-            v-model="searchQuery"
-            placeholder="搜索文件名或文件夹"
-            size="small"
-            clearable
-            style="width: 200px;"
-            @input="handleSearch"
-          >
-            <template #append>
-              <el-button icon="el-icon-search" @click="handleSearch" />
-            </template>
-          </el-input>
-        </div>
-      </div>
-    </div>
     <div v-loading="loading" class="card-container" :element-loading-text="'加载中...'">
       <div
         v-for="item in filteredFileTree"
         :key="item.file || item.label"
-        :class="['file-card', { 'folder-card': item.isFolder }]"
+        :class="['file-card', { 'folder-card': item.proofread != item.total }, { 'locked-card': item.locked === 1 }]"
         @click="handleNodeClick(item)"
       >
         <div class="card-header">
           <div class="card-title">
             <i :class="item.isFolder ? 'el-icon-folder' : 'el-icon-document'" class="file-icon" />
-            <span>{{ item.label }}</span>
+            <span class="card-title__text" v-html="item.highlightedLabel || item.label" />
+            <el-button
+              v-if="!item.isFolder"
+              v-permission="['admin']"
+              type="text"
+              size="small"
+              icon="el-icon-edit"
+              class="render-button"
+              @click.stop="goToRender(item.file)"
+            >
+              高级模式
+            </el-button>
+            <el-button
+              v-if="!item.isFolder"
+              v-permission="['admin']"
+              :loading="syncingFile === item.file"
+              type="text"
+              size="small"
+              icon="el-icon-refresh"
+              class="render-button"
+              @click.stop="syncItem(item)"
+            >
+              同步
+            </el-button>
           </div>
         </div>
         <div class="card-content">
@@ -67,6 +59,8 @@
 </template>
 
 <script>
+import { fetchSyncTaskStatus, syncFileProgress } from '@/api/files'
+
 export default {
   name: 'FileMenu',
   data() {
@@ -74,31 +68,62 @@ export default {
       files: [],
       fileTree: [],
       filteredFileTree: [],
-      searchQuery: '',
       defaultProps: {
         children: 'children',
         label: 'label'
       },
       loading: false,
-      currentPath: '/',
-      pathHistory: ['/']
+      syncingFile: ''
     }
   },
-  mounted() {
-    this.loadFiles('/')
+  computed: {
+    currentPath() {
+      return this.$route.query.dir || '/'
+    },
+    searchQuery() {
+      return (this.$route.query.search || '').trim()
+    }
+  },
+  watch: {
+    '$route.query': {
+      immediate: true,
+      handler() {
+        this.loadFiles(this.currentPath, true)
+      }
+    }
   },
   methods: {
-    loadFiles(path) {
+    escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+    },
+    highlightText(text, query) {
+      const safeText = this.escapeHtml(text)
+      if (!query) return safeText
+      const pattern = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig')
+      return safeText.replace(pattern, '<mark>$1</mark>')
+    },
+    getSearchScore(label, query) {
+      if (!query) return 0
+      const lowerLabel = label.toLowerCase()
+      const lowerQuery = query.toLowerCase()
+      const index = lowerLabel.indexOf(lowerQuery)
+      if (index === -1) return 0
+      if (lowerLabel === lowerQuery) return 4
+      if (lowerLabel.startsWith(lowerQuery)) return 3
+      if (lowerLabel.includes(lowerQuery)) return 2
+      return 1
+    },
+    loadFiles(path, force = true) {
       this.loading = true
-      this.$store.dispatch('file/loadJsonFiles', { file_path: path })
+      this.$store.dispatch('file/loadJsonFiles', { file_path: path, force })
         .then(files => {
           this.files = files
           this.buildFileTree()
-          this.currentPath = path
-          // 更新路径历史记录
-          if (!this.pathHistory.includes(path)) {
-            this.pathHistory.push(path)
-          }
         })
         .catch(error => {
           console.error('加载文件列表失败:', error)
@@ -116,21 +141,26 @@ export default {
         console.log(item)
         if (item.source_file) {
           // 这是一个文件
+          const baseLabel = (item.display_name || item.file.split('/').pop())
           const fileNode = {
-            label: item.display_name || item.file.split('/').pop(), // 获取文件名
+            rawLabel: baseLabel,
+            label: baseLabel + (item.locked === 1 ? ' (已锁定)' : ''), // 获取文件名
             file: item.file,
             total: item.total,
             translate: item.translate,
             proofread: item.proofread,
             translatePercentage: item.total > 0 ? Math.round((item.translate / item.total) * 100) : 0,
             proofreadPercentage: item.total > 0 ? Math.round((item.proofread / item.total) * 100) : 0,
+            locked: item.locked || 0,
             isFolder: false
           }
           tree.push(fileNode)
         } else {
           // 这是一个文件夹，已经包含了统计信息
+          const baseLabel = item.display_name || item.file.split('/').pop()
           const folderNode = {
-            label: item.display_name || item.file.split('/').pop(), // 获取文件夹名
+            rawLabel: baseLabel,
+            label: baseLabel, // 获取文件夹名
             file: item.file,
             children: [], // 保持结构一致，但不包含子路径下的内容
             fileCount: item.fileCount || 0,
@@ -145,18 +175,25 @@ export default {
         }
       })
       this.fileTree = tree
-      this.filteredFileTree = tree
-    },
-    handleSearch() {
-      if (!this.searchQuery.trim()) {
-        this.filteredFileTree = this.fileTree
+      if (!this.searchQuery) {
+        this.filteredFileTree = tree
         return
       }
-
-      const query = this.searchQuery.toLowerCase()
-      this.filteredFileTree = this.fileTree.filter(item => {
-        return item.label.toLowerCase().includes(query)
-      })
+      const query = this.searchQuery
+      this.filteredFileTree = [...this.fileTree]
+        .map((item, index) => {
+          const searchScore = this.getSearchScore(item.rawLabel || item.label, query)
+          return {
+            ...item,
+            highlightedLabel: this.highlightText(item.label, query),
+            searchScore,
+            originalIndex: index
+          }
+        })
+        .sort((a, b) => {
+          if (b.searchScore !== a.searchScore) return b.searchScore - a.searchScore
+          return a.originalIndex - b.originalIndex
+        })
     },
     handleNodeClick(data) {
       // 如果正在加载中，不处理点击事件
@@ -164,6 +201,13 @@ export default {
 
       if (!data.isFolder) {
         // 如果是文件，跳转到list.vue并携带参数
+        console.log(data)
+        console.log(data.locked === 1)
+        console.log(data.locked === '1')
+        if (data.locked === 1) {
+          this.$message.error('该文件已被锁定，无法查看')
+          return
+        }
         this.$router.push({
           path: '/table/files',
           query: {
@@ -172,20 +216,47 @@ export default {
         })
       } else {
         // 如果是文件夹，加载该文件夹下的内容
-        this.loadFiles(data.file)
+        this.$router.push({
+          path: '/table/menu',
+          query: {
+            ...this.$route.query,
+            dir: data.file
+          }
+        })
       }
     },
-    goBack() {
-      // 返回上级目录
-      if (this.currentPath === '/') return
-
-      // 获取上级目录路径
-      const pathParts = this.currentPath.split('/').filter(Boolean)
-      pathParts.pop()
-      const parentPath = pathParts.length > 0 ? pathParts.join('/') : '/'
-
-      // 加载上级目录内容
-      this.loadFiles(parentPath)
+    syncItem(item) {
+      this.syncingFile = item.file
+      syncFileProgress({ file: item.file }).then((response) => {
+        return this.waitForSyncTask(response.data.task_id)
+      }).then(() => {
+        this.$message.success('同步完成')
+        this.loadFiles(this.currentPath, true)
+      }).catch(error => {
+        console.error(error)
+        this.$message.error(error.message || '同步失败')
+      }).finally(() => {
+        this.syncingFile = ''
+      })
+    },
+    waitForSyncTask(taskId) {
+      return new Promise((resolve, reject) => {
+        const poll = () => {
+          fetchSyncTaskStatus(taskId).then((response) => {
+            const task = response.data
+            if (task.status === 'success') {
+              resolve(task)
+              return
+            }
+            if (task.status === 'error') {
+              reject(new Error(task.message || '同步失败'))
+              return
+            }
+            setTimeout(poll, 1500)
+          }).catch(reject)
+        }
+        poll()
+      })
     },
     getProgressColor(percentage) {
       if (percentage === 100) return '#67C23A'
@@ -196,6 +267,14 @@ export default {
       if (percentage === 100) return '#67C23A'
       if (percentage >= 50) return '#409EFF'
       return '#909399'
+    },
+    goToRender(filePath) {
+      this.$router.push({
+        path: '/table/render',
+        query: {
+          file_path: filePath
+        }
+      })
     }
   }
 }
@@ -203,57 +282,13 @@ export default {
 
 <style scoped>
 .menu-container {
-  padding: 20px;
-}
-
-.header-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-h2 {
-  margin: 0;
-  color: #303133;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.current-path {
-  font-size: 14px;
-  color: #606266;
-  background-color: #f5f7fa;
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: 1px solid #e4e7ed;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
+  padding: 0;
 }
 
 .card-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 20px;
-  margin-top: 20px;
 }
 
 .file-card {
@@ -274,11 +309,20 @@ h2 {
 }
 
 .folder-card {
-  border-left: 4px solid #409EFF;
+  border-left: 4px solid #ff4040;
 }
 
 .file-card:not(.folder-card) {
   border-left: 4px solid #67C23A;
+}
+
+.locked-card {
+  /* border-left: 4px solid #909399; */
+  background-color: #606266;
+}
+
+.locked-card .card-title {
+  color: #909399;
 }
 
 .card-header {
@@ -296,12 +340,23 @@ h2 {
   color: #303133;
 }
 
+.card-title__text {
+  min-width: 0;
+}
+
+.card-title__text mark {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: #ffe1a8;
+  color: #8a4b00;
+}
+
 .file-icon {
   font-size: 20px;
 }
 
 .folder-card .file-icon {
-  color: #409EFF;
+  color: #ff4040;
 }
 
 .file-card:not(.folder-card) .file-icon {
@@ -452,5 +507,94 @@ h2 {
   .card-container {
     grid-template-columns: 1fr;
   }
+}
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .card-container {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+
+<style lang="scss">
+body.dark-mode .menu-container {
+  background-color: #2d2d2d;
+}
+
+body.dark-mode .menu-container h2 {
+  color: #e0e0e0;
+}
+
+body.dark-mode .menu-container .current-path {
+  background-color: #3a3a3a;
+  border-color: #444;
+  color: #e0e0e0;
+}
+
+body.dark-mode .menu-container .file-card {
+  background-color: #333;
+  border-color: #444;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .menu-container .file-card:hover {
+  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.4);
+}
+
+body.dark-mode .menu-container .folder-card {
+  border-left-color: #ff6b6b;
+}
+
+body.dark-mode .menu-container .file-card:not(.folder-card) {
+  border-left-color: #67C23A;
+}
+
+body.dark-mode .menu-container .locked-card {
+  background-color: #444;
+}
+
+body.dark-mode .menu-container .locked-card .card-title {
+  color: #b0b0b0;
+}
+
+body.dark-mode .menu-container .card-title {
+  color: #e0e0e0;
+}
+
+body.dark-mode .menu-container .card-title__text mark {
+  background: rgba(245, 182, 66, 0.28);
+  color: #ffe7b3;
+}
+
+body.dark-mode .menu-container .folder-card .file-icon {
+  color: #ff6b6b;
+}
+
+body.dark-mode .menu-container .file-card:not(.folder-card) .file-icon {
+  color: #67C23A;
+}
+
+body.dark-mode .menu-container .stat-label {
+  color: #b0b0b0;
+}
+
+body.dark-mode .menu-container .stat-value {
+  color: #e0e0e0;
+}
+
+body.dark-mode .menu-container .progress-label {
+  color: #b0b0b0;
+}
+
+body.dark-mode .menu-container .progress-text {
+  color: #909399;
+}
+
+body.dark-mode .menu-container .integrated-progress {
+  background-color: #444;
+}
+
+body.dark-mode .menu-container .el-progress__text {
+  color: #e0e0e0;
 }
 </style>

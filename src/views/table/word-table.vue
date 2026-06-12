@@ -6,6 +6,7 @@
           <div class="filter-container">
             <el-input v-model="listQuery.in_en" placeholder="英文" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
             <el-input v-model="listQuery.in_cn" placeholder="翻译" clearable style="width: 200px;" class="filter-item" @keyup.enter.native="handleFilter" />
+            <el-input v-model="listQuery.source_file" placeholder="来源文件" clearable style="width: 220px;" class="filter-item" @keyup.enter.native="handleFilter" />
             <!-- <el-select v-model="listQuery.eq_is_key" placeholder="关键词" clearable style="width: 90px" class="filter-item">
               <el-option :key="1" :label="'是'" :value="1" />
               <el-option :key="0" :label="'否'" :value="0" />
@@ -18,9 +19,6 @@
               <el-option :key="1" :label="'已校对'" :value="1" />
               <el-option :key="0" :label="'未校对'" :value="0" />
             </el-select>
-            <!-- <el-select v-model="listQuery.source_file" style="width: 140px" class="filter-item" clearable filterable placeholder="引用文件" @change="handleFilter">
-              <el-option v-for="item in files" :key="item" :label="item" :value="item" />
-            </el-select> -->
             <el-select v-model="listQuery.sort" style="width: 140px" class="filter-item" @change="handleFilter">
               <el-option v-for="item in sortOptions" :key="item.key" :label="item.label" :value="item.key" />
             </el-select>
@@ -41,6 +39,7 @@
             :data="list"
             border
             fit
+            size="mini"
             highlight-current-row
             style="width: 100%;"
             @sort-change="sortChange"
@@ -57,7 +56,12 @@
             </el-table-column>
             <el-table-column label="翻译" align="center">
               <template slot-scope="{row}">
-                <span>{{ row.cn }}</span>
+                <inline-translation-editor
+                  :ref="`translationEditor-${row.id}`"
+                  v-model="row.editCn"
+                  :disabled="row.submitting"
+                  @submit="handleInlineSubmit(row)"
+                />
               </template>
             </el-table-column>
             <el-table-column label="修改时间" width="160px" align="center">
@@ -76,14 +80,15 @@
               </template>
             </el-table-column>
             <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
-              <!-- <template slot-scope="{row,$index}"> -->
               <template slot-scope="{row}">
-                <el-button type="primary" size="mini" @click="toProofread(row)">
-                  校对
+                <el-button
+                  :type="isTranslationEdited(row) ? 'success' : 'primary'"
+                  size="mini"
+                  :loading="row.submitting"
+                  @click="handleRowAction(row)"
+                >
+                  {{ isTranslationEdited(row) ? '提交' : '校对' }}
                 </el-button>
-                <!-- <router-link :to="'/table/word/'+row.id">
-                  Excel{{ $index }}
-                </router-link> -->
               </template>
             </el-table-column>
           </el-table>
@@ -153,6 +158,8 @@ import waves from '@/directive/waves' // waves directive
 import { parseTime } from '@/utils'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
 import Proofread from '@/components/Proofread'
+import InlineTranslationEditor from '@/components/InlineTranslationEditor'
+import inlineProofread from '@/utils/inline-proofread'
 
 const calendarTypeOptions = [
   { key: 'CN', display_name: 'China' },
@@ -169,7 +176,7 @@ const calendarTypeKeyValue = calendarTypeOptions.reduce((acc, cur) => {
 
 export default {
   name: 'ComplexTable',
-  components: { Pagination, Proofread },
+  components: { InlineTranslationEditor, Pagination, Proofread },
   directives: { waves },
   filters: {
     statusFilter(status) {
@@ -187,6 +194,7 @@ export default {
       return b === 1 ? '是' : '否'
     }
   },
+  mixins: [inlineProofread],
   data() {
     return {
       files: [],
@@ -196,9 +204,10 @@ export default {
       listLoading: true,
       listQuery: {
         page: 1,
-        limit: 20,
+        limit: 100,
         in_en: undefined,
         in_cn: undefined,
+        source_file: undefined,
         eq_is_key: undefined,
         eq_proofread: 0,
         has_proofread: undefined,
@@ -209,6 +218,7 @@ export default {
       sortOptions: [
         { label: 'ID 升序', key: '+id' },
         { label: 'ID 降序', key: '-id' },
+        { label: '英文长度 升序', key: '+en_length' },
         { label: '修改时间 升序', key: '+modified_at' },
         { label: '修改时间 降序', key: '-modified_at' }
       ],
@@ -257,7 +267,7 @@ export default {
     getList() {
       this.listLoading = true
       fetchList(this.listQuery).then(response => {
-        this.list = response.data.items
+        this.list = this.prepareInlineProofreadRows(response.data.items)
         this.total = response.data.count
 
         // Just to simulate the time of the request
@@ -270,6 +280,7 @@ export default {
       this.listQuery.page = 1
       this.listQuery.in_cn = this.listQuery.in_cn ? this.listQuery.in_cn.trim() : undefined
       this.listQuery.in_en = this.listQuery.in_en ? this.listQuery.in_en.trim() : undefined
+      this.listQuery.source_file = this.listQuery.source_file ? this.listQuery.source_file.trim() : undefined
       this.getList()
     },
     handleModifyStatus(row, status) {

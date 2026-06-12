@@ -5,13 +5,19 @@ import Layout from '@/layout'
 const tableRouter = {
   path: '/table',
   component: Layout,
-  redirect: '/table/menu',
+  redirect: '/table/dashboard',
   name: 'Table',
   meta: {
     title: 'Table',
     icon: 'table'
   },
   children: [
+    {
+      path: 'dashboard',
+      name: 'DashboardHome',
+      component: () => import('@/views/dashboard/index'),
+      meta: { title: '首页看板', affix: true }
+    },
     // {
     //   path: 'dynamic-table',
     //   component: () => import('@/views/table/dynamic-table/index'),
@@ -34,7 +40,7 @@ const tableRouter = {
       path: 'menu',
       name: 'FileMenu',
       component: () => import('@/views/Menu'),
-      meta: { title: '文件翻译进度', affix: true }
+      meta: { title: '文件翻译进度', affix: false }
     },
     {
       path: 'files',
@@ -46,7 +52,13 @@ const tableRouter = {
       path: 'words',
       component: () => import('@/views/table/word-table'),
       name: 'WordTable',
-      meta: { title: '翻译列表', affix: true }
+      meta: { title: '翻译列表', affix: false }
+    },
+    {
+      path: 'terms',
+      component: () => import('@/views/table/term-table'),
+      name: 'TermTable',
+      meta: { title: '术语表', affix: false }
     },
     {
       path: 'word/:id',
@@ -59,8 +71,20 @@ const tableRouter = {
       path: 'key-words',
       component: () => import('@/views/table/key-word-table'),
       name: 'KeyWordList',
-      meta: { title: '关键词批量修正', affix: true, roles: ['admin'] // you can set roles in root nav
+      meta: { title: '关键词批量修正', affix: false, roles: ['admin'] // you can set roles in root nav
       }
+    },
+    {
+      path: 'invite-codes',
+      component: () => import('@/views/table/invite-code-table'),
+      name: 'InviteCodeList',
+      meta: { title: '邀请码管理', affix: false, roles: ['admin'] }
+    },
+    {
+      path: 'render',
+      name: 'Render',
+      component: () => import('@/views/file/Render'),
+      meta: { title: '高级模式', affix: false }
     }
   ]
 }

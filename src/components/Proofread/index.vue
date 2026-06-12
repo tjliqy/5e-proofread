@@ -1,15 +1,32 @@
 <template>
   <div v-loading="loading">
-    <el-card background-color="#f5f7fa">
+    <el-card>
       <p v-if="canProofread">已完成校对的内容无法继续上传校对</p>
       <el-button-group>
-        <el-button v-for="t,i in tag_list" :key="i" size="mini" type="primary" icon="el-icon-document" @click="handleCopy(t,$event)">
-          {{ t }}
+        <el-button v-for="t,i in tag_list" :key="i" size="mini" type="primary" class="tag-copy-button" @click="handleCopy(t.cn, $event)">
+          <div class="tag-copy-content">
+            <div class="tag-copy-label">EN</div>
+            <div class="tag-copy-text">{{ t.en }}</div>
+            <div class="tag-copy-label">CN</div>
+            <div class="tag-copy-text">{{ t.cn }}</div>
+          </div>
         </el-button>
       </el-button-group>
 
-      <el-input v-model="proofread.cn" type="textarea" rows="5" placeholder="请输入翻译" :disabled="canProofread" style="margin:2px 0" />
-      <el-button type="primary" :disabled="canProofread" @click="createProofread">提交校对</el-button>
+      <el-input
+        v-model="proofread.cn"
+        type="textarea"
+        rows="5"
+        placeholder="请输入翻译"
+        :disabled="canProofread || submitting"
+        style="margin:2px 0"
+        @keydown.native="handleProofreadKeydown"
+      />
+      <div class="proofread-actions">
+        <el-button plain icon="el-icon-arrow-left" :disabled="!hasPreviousUnproofread || submitting || loading" @click="$emit('previous-unproofread')">上一个</el-button>
+        <el-button type="primary" :loading="submitting" :disabled="canProofread || submitting" @click="createProofread">提交校对</el-button>
+        <el-button plain icon="el-icon-arrow-right" :disabled="!hasNextUnproofread || submitting || loading" @click="$emit('next-unproofread')">下一个</el-button>
+      </div>
     </el-card>
     <el-card>
       <el-descriptions :column="1">
@@ -53,6 +70,11 @@
             <span>{{ row.modified_at }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="校对用户" width="150px" align="center">
+          <template slot-scope="{row}">
+            <span>{{ row.modified_by_username }}</span>
+          </template>
+        </el-table-column>
         <el-table-column v-if="role == 'admin'" label="操作" align="center" width="150" class-name="small-padding fixed-width">
           <!-- <template slot-scope="{row,$index}"> -->
           <template slot-scope="{row}">
@@ -79,13 +101,13 @@
       >
         <el-table-column label="英文" align="center">
           <template slot-scope="{row}">
-            <span>{{ row.en_str }}</span>
+            <span>{{ row.en }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="翻译" align="center">
           <template slot-scope="{row}">
-            <span>{{ row.cn_str }}</span>
+            <span>{{ row.cn }}</span>
           </template>
         </el-table-column>
         <el-table-column label="是否确认" align="center">
@@ -171,6 +193,14 @@ export default {
     currentFile: {
       type: String,
       default: ''
+    },
+    hasNextUnproofread: {
+      type: Boolean,
+      default: false
+    },
+    hasPreviousUnproofread: {
+      type: Boolean,
+      default: false
     }
   },
   data() {
@@ -199,6 +229,7 @@ export default {
         cn: '',
         modified_by: ''
       },
+      submitting: false,
       source_files: [],
       tag_list: []
     }
@@ -214,6 +245,9 @@ export default {
         this.loadNewWord(val)
       },
       deep: true
+    },
+    'proofread.cn': function() {
+      this.updateTagList()
     }
   },
   mounted() {
@@ -248,9 +282,7 @@ export default {
       if (this.currentFile !== '') {
         this.getRelationList()
       }
-      const regex = /{@(.*?)}/g
-      const matches = val.en_str.match(regex)
-      this.tag_list = matches
+      this.updateTagList()
     },
     getProofreadList() {
       this.proofreadQuery.eq_word_id = this.word.sql_id
@@ -292,16 +324,26 @@ export default {
       this.proofreadQuery.page = 1
       this.getInfo()
     },
+    handleProofreadKeydown(event) {
+      if (!event || event.key !== 'Enter') return
+      if (event.shiftKey || event.isComposing) return
+      if (this.canProofread || this.submitting) return
+      event.preventDefault()
+      this.createProofread()
+    },
     handleAccepted(row) {
       this.loading = true
-      acceptProofread(row).then(() => {
+      acceptProofread({ ...row, current_file: this.currentFile }).then((response) => {
         this.loading = false
         this.$message({
           message: '已采纳:' + row.cn,
           type: 'success'
         })
         this.word.is_proofread = 1
+        this.word.is_key = 1
         this.word.cn_str = row.cn
+        this.$emit('word-updated', { ...this.word })
+        this.$emit('progress-updated', response.data.progress || {})
         this.getProofreadList()
       }).finally(() => {
         this.loading = false
@@ -354,6 +396,9 @@ export default {
       })
     },
     createProofread() {
+      if (this.submitting) {
+        return
+      }
       this.proofread.cn = this.proofread.cn.trim().replace(/\n/g, '')
       // if (this.proofread.cn === this.word.cn) {
       //   this.$notify({
@@ -367,6 +412,7 @@ export default {
       const tempData = Object.assign({}, this.proofread)
       tempData.modified_by = this.word.modified_by
       tempData.word_id = this.word.sql_id
+      tempData.current_file = this.currentFile
       tempData.modified_at = undefined
       tempData.modified_by = undefined
       if (countOccurrences(this.word.en_str, '{@') !== countOccurrences(this.proofread.cn, '{@') ||
@@ -379,10 +425,12 @@ export default {
         })
         return
       }
-      createProofread(tempData).then(() => {
+      this.submitting = true
+      createProofread(tempData).then((response) => {
+        const autoAccepted = response.data.auto_accepted === true
         this.$notify({
           title: 'Success',
-          message: 'Create Successfully',
+          message: autoAccepted ? '校对已提交并自动确认' : '校对已提交',
           type: 'success',
           duration: 2000
         })
@@ -391,7 +439,17 @@ export default {
           cn: '',
           modified_by: ''
         }
+        this.$emit('word-updated', {
+          ...this.word,
+          cn_str: autoAccepted ? tempData.cn : this.word.cn_str,
+          is_key: 1,
+          is_proofread: autoAccepted ? 1 : this.word.is_proofread
+        })
+        this.$emit('progress-updated', response.data.progress || {})
         this.getProofreadList()
+        this.$emit('next-unproofread')
+      }).finally(() => {
+        this.submitting = false
       })
       this.word.is_key = true
     },
@@ -408,10 +466,187 @@ export default {
       const sort = this.proofreadQuery.sort
       return sort === `+${key}` ? 'ascending' : 'descending'
     },
+    splitOutsideTags(text) {
+      if (!text) return []
+      const result = []
+      let current = ''
+      let bracketLevel = 0
+      let i = 0
+      while (i < text.length) {
+        if (text.slice(i, i + 2) === '{@') {
+          bracketLevel += 1
+          current += '{@'
+          i += 2
+          continue
+        }
+        if (text[i] === '{') {
+          bracketLevel += 1
+          current += text[i]
+          i += 1
+          continue
+        }
+        if (text[i] === '}') {
+          bracketLevel = Math.max(0, bracketLevel - 1)
+          current += text[i]
+          i += 1
+          continue
+        }
+        if (text[i] === '|' && bracketLevel === 0) {
+          result.push(current)
+          current = ''
+          i += 1
+          continue
+        }
+        current += text[i]
+        i += 1
+      }
+      if (current) {
+        result.push(current)
+      }
+      return result
+    },
+    parseTopLevelTags(text) {
+      const tags = []
+      if (!text) return tags
+      let index = 0
+      while (index < text.length) {
+        const startIndex = text.indexOf('{@', index)
+        if (startIndex === -1) break
+        const tagStart = startIndex + 2
+        const firstSpace = text.indexOf(' ', tagStart)
+        const firstBrace = text.indexOf('}', tagStart)
+        let tag = ''
+        let value = ''
+        let endIndex = -1
+
+        if (firstSpace === -1 || (firstBrace !== -1 && firstBrace < firstSpace)) {
+          if (firstBrace === -1) break
+          tag = text.slice(tagStart, firstBrace)
+          endIndex = firstBrace
+        } else {
+          tag = text.slice(tagStart, firstSpace)
+          let braceCount = 1
+          let cursor = firstSpace + 1
+          while (cursor < text.length) {
+            if (text.slice(cursor, cursor + 2) === '{@') {
+              braceCount += 1
+              cursor += 2
+              continue
+            }
+            if (text[cursor] === '}') {
+              braceCount -= 1
+              if (braceCount === 0) {
+                endIndex = cursor
+                break
+              }
+            }
+            cursor += 1
+          }
+          if (endIndex === -1) break
+          value = text.slice(firstSpace + 1, endIndex)
+        }
+
+        tags.push({
+          raw: text.slice(startIndex, endIndex + 1),
+          tag,
+          value
+        })
+        index = endIndex + 1
+      }
+      return tags
+    },
+    matchTagNodes(enNodes, cnNodes) {
+      const matched = []
+      const used = new Set()
+      enNodes.forEach((enNode, index) => {
+        let matchIndex = cnNodes.findIndex((node, idx) => !used.has(idx) && node.tag === enNode.tag)
+        if (matchIndex === -1 && cnNodes[index]) {
+          matchIndex = index
+        }
+        const cnNode = matchIndex === -1 ? null : cnNodes[matchIndex]
+        if (matchIndex !== -1) {
+          used.add(matchIndex)
+        }
+        matched.push({ enNode, cnNode })
+      })
+      return matched
+    },
+    buildCnTag(enNode, cnNode) {
+      if (!enNode) return ''
+      if (!enNode.value) {
+        return `{@${enNode.tag}}`
+      }
+      const cnValue = this.buildCnValue(enNode.value, cnNode ? cnNode.value : '')
+      return `{@${enNode.tag} ${cnValue}}`
+    },
+    buildCnValue(enValue, cnValue) {
+      const enNodes = this.parseTopLevelTags(enValue)
+      if (enNodes.length === 0) {
+        const enParts = this.splitOutsideTags(enValue)
+        const cnParts = this.splitOutsideTags(cnValue)
+        if (enParts.length > 1) {
+          return enParts.map((part, index) => {
+            const currentCnPart = cnParts[index] !== undefined ? cnParts[index] : ''
+            return this.buildCnValue(part, currentCnPart)
+          }).join('|')
+        }
+        return cnValue && cnValue !== enValue ? cnValue : enValue
+      }
+
+      let result = cnValue || enValue
+      const cnNodes = this.parseTopLevelTags(cnValue)
+      const matchedPairs = this.matchTagNodes(enNodes, cnNodes)
+      matchedPairs.forEach(({ enNode, cnNode }) => {
+        const sourceRaw = cnNode ? cnNode.raw : enNode.raw
+        result = result.replace(sourceRaw, this.buildCnTag(enNode, cnNode))
+      })
+      return result
+    },
+    updateTagList() {
+      const enNodes = this.parseTopLevelTags(this.word.en_str || '')
+      const cnNodes = this.parseTopLevelTags(this.proofread.cn || this.word.cn_str || '')
+      this.tag_list = this.matchTagNodes(enNodes, cnNodes).map(({ enNode, cnNode }) => ({
+        en: enNode.raw,
+        cn: this.buildCnTag(enNode, cnNode)
+      }))
+    },
     handleCopy(text, event) {
       clip(text, event)
     }
-  }
+  },
+  emits: ['progress-updated', 'word-updated', 'next-unproofread', 'previous-unproofread']
 
 }
 </script>
+
+<style lang="scss" scoped>
+.proofread-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tag-copy-button {
+  height: auto;
+  white-space: normal;
+}
+
+.tag-copy-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.tag-copy-label {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.tag-copy-text {
+  max-width: 320px;
+  word-break: break-all;
+}
+</style>

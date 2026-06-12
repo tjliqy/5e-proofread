@@ -1,16 +1,18 @@
 <template>
   <div>
-    <!-- 处理数组类型的json_html -->
-    <template v-if="Array.isArray(json_html)">
+    <!-- 处理数组类型的 jsonHtml -->
+    <template v-if="Array.isArray(jsonHtml)">
       <!-- 使用单个span容器确保同一行的所有内容都在视觉上保持一行 -->
       <div style="margin-bottom: 5px;">
         <span>
           <!-- 遍历所有数组项 -->
-          <span v-for="(item, j) in json_html" :key="j">
+          <span v-for="(item, j) in jsonHtml" :key="j">
             <!-- 处理单个句子片段（来自fuckLine的返回结果） -->
             <template v-if="item.word || item.html">
               <el-link
                 v-if="item.word"
+                :class="{ 'translate-link--active': item.word === currentWordKey }"
+                :data-word-key="item.word"
                 :type="(item.word in words) ? (words[item.word].is_proofread ? 'success' : (words[item.word].is_key ? 'warning' : 'primary')) : 'info'"
                 @click="$emit('to-proofread', (item.word in words) ? words[item.word] : null, item.word)"
               >
@@ -24,12 +26,22 @@
                 <!-- 处理name_obj -->
                 <template #header>
                   <div v-if="item.name_obj" class="card-title" style="display: inline-block; margin-bottom: 5px;">
-                    <TranslateLine :json_html="item.name_obj" :words="words" @to-proofread="$emit('to-proofread', $event)" />
+                    <TranslateLine
+                      :json-html="item.name_obj"
+                      :words="words"
+                      :current-word-key="currentWordKey"
+                      @to-proofread="relayToProofread"
+                    />
                   </div>
                 </template>
                 <!-- 处理entries -->
                 <div v-if="item.entries">
-                  <TranslateLine :json_html="item.entries" :words="words" @to-proofread="$emit('to-proofread', $event)" />
+                  <TranslateLine
+                    :json-html="item.entries"
+                    :words="words"
+                    :current-word-key="currentWordKey"
+                    @to-proofread="relayToProofread"
+                  />
                 </div>
               </el-card>
             </template>
@@ -38,15 +50,25 @@
       </div>
     </template>
 
-    <!-- 处理对象类型的json_html -->
-    <template v-else-if="typeof json_html === 'object' && json_html !== null">
+    <!-- 处理对象类型的 jsonHtml -->
+    <template v-else-if="typeof jsonHtml === 'object' && jsonHtml !== null">
       <!-- 处理name_obj -->
-      <span v-if="json_html.name_obj" style="margin-bottom: 5px; display: inline-block;">
-        <TranslateLine :json_html="json_html.name_obj" :words="words" @to-proofread="$emit('to-proofread', $event)" />
+      <span v-if="jsonHtml.name_obj" style="margin-bottom: 5px; display: inline-block;">
+        <TranslateLine
+          :json-html="jsonHtml.name_obj"
+          :words="words"
+          :current-word-key="currentWordKey"
+          @to-proofread="relayToProofread"
+        />
       </span>
       <!-- 处理entries -->
-      <span v-if="json_html.entries" style="display: inline-block;">
-        <TranslateLine :json_html="json_html.entries" :words="words" @to-proofread="$emit('to-proofread', $event)" />
+      <span v-if="jsonHtml.entries" style="display: inline-block;">
+        <TranslateLine
+          :json-html="jsonHtml.entries"
+          :words="words"
+          :current-word-key="currentWordKey"
+          @to-proofread="relayToProofread"
+        />
       </span>
     </template>
   </div>
@@ -56,30 +78,47 @@
 export default {
   name: 'TranslateLine',
   props: {
-    json_html: {
+    jsonHtml: {
       type: [Array, Object],
       default: () => {}
     },
     words: {
       type: Object,
       default: () => {}
+    },
+    currentWordKey: {
+      type: String,
+      default: ''
     }
   },
   emits: ['to-proofread'],
   watch: {
-    // 监听 json_html 变化，确保不会传递函数类型
-    json_html: {
+    // 监听 jsonHtml 变化，确保不会传递函数类型
+    jsonHtml: {
       handler(newVal) {
         if (typeof newVal === 'function') {
-          console.error('json_html received a function, which is not allowed:', newVal)
+          console.error('jsonHtml received a function, which is not allowed:', newVal)
         }
       },
       deep: true
+    }
+  },
+  methods: {
+    relayToProofread(row, enInFile) {
+      this.$emit('to-proofread', row, enInFile)
     }
   }
 }
 </script>
 
 <style scoped>
-/* 可以在这里添加一些样式来增强视觉效果 */
+.translate-link--active {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px rgba(255, 145, 0, 0.2);
+  background: rgba(255, 145, 0, 0.12);
+}
 </style>

@@ -1,4 +1,4 @@
-import { login, logout, getInfo } from '@/api/user'
+import { login, logout, getInfo, register } from '@/api/user'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import router, { resetRouter } from '@/router'
 
@@ -38,6 +38,22 @@ const actions = {
         commit('SET_TOKEN', data.token)
         setToken(data.token)
         resolve()
+      }).catch(error => {
+        reject(error)
+      })
+    })
+  },
+
+  register(context, userInfo) {
+    const payload = {
+      username: userInfo.username.trim(),
+      password: userInfo.password,
+      confirm_password: userInfo.confirmPassword,
+      invite_code: userInfo.inviteCode
+    }
+    return new Promise((resolve, reject) => {
+      register(payload).then(response => {
+        resolve(response)
       }).catch(error => {
         reject(error)
       })
