@@ -40,6 +40,14 @@ export function replaceTranslate(data) {
   })
 }
 
+export function createIndependentTranslation(data) {
+  return request({
+    url: '/words/independent-translation',
+    method: 'post',
+    data
+  })
+}
+
 export function replaceKeyWords(data) {
   return request({
     url: '/replace-key',

@@ -18,14 +18,23 @@
         type="textarea"
         rows="5"
         placeholder="请输入翻译"
-        :disabled="canProofread || submitting"
+        :disabled="canProofread || submitting || independentSubmitting"
         style="margin:2px 0"
         @keydown.native="handleProofreadKeydown"
       />
       <div class="proofread-actions">
-        <el-button plain icon="el-icon-arrow-left" :disabled="!hasPreviousUnproofread || submitting || loading" @click="$emit('previous-unproofread')">上一个</el-button>
-        <el-button type="primary" :loading="submitting" :disabled="canProofread || submitting" @click="createProofread">提交校对</el-button>
-        <el-button plain icon="el-icon-arrow-right" :disabled="!hasNextUnproofread || submitting || loading" @click="$emit('next-unproofread')">下一个</el-button>
+        <el-button plain icon="el-icon-arrow-left" :disabled="!hasPreviousUnproofread || submitting || independentSubmitting || loading" @click="$emit('previous-unproofread')">上一个</el-button>
+        <el-button type="primary" :loading="submitting" :disabled="canProofread || submitting || independentSubmitting" @click="createProofread">提交校对</el-button>
+        <el-button
+          v-if="canCreateIndependentTranslation"
+          type="warning"
+          :loading="independentSubmitting"
+          :disabled="submitting || independentSubmitting || !proofread.cn.trim()"
+          @click="createIndependentTranslation"
+        >
+          新增独立翻译
+        </el-button>
+        <el-button plain icon="el-icon-arrow-right" :disabled="!hasNextUnproofread || submitting || independentSubmitting || loading" @click="$emit('next-unproofread')">下一个</el-button>
       </div>
     </el-card>
     <el-card>
@@ -143,7 +152,12 @@
 
 <script>
 // import { fetchList, fetchPv, createArticle, updateArticle } from '@/api/article'
-import { fetchSourceFiles, fetchList, replaceTranslate } from '@/api/words'
+import {
+  createIndependentTranslation as submitIndependentTranslation,
+  fetchSourceFiles,
+  fetchList,
+  replaceTranslate
+} from '@/api/words'
 import { createProofread, fetchProofreadList, acceptProofread } from '@/api/proofread'
 import clip from '@/utils/clipboard' // use clipboard directly
 
@@ -205,6 +219,10 @@ export default {
     hasPreviousUnproofread: {
       type: Boolean,
       default: false
+    },
+    autoNextAfterProofread: {
+      type: Boolean,
+      default: true
     }
   },
   data() {
@@ -234,6 +252,7 @@ export default {
         modified_by: ''
       },
       submitting: false,
+      independentSubmitting: false,
       source_files: [],
       tag_list: []
     }
@@ -241,6 +260,13 @@ export default {
   computed: {
     canProofread() {
       return this.word.sql_id !== undefined && this.word.is_proofread === 1 && this.role !== 'admin'
+    },
+    canCreateIndependentTranslation() {
+      return this.role === 'admin' &&
+        this.currentFile !== '' &&
+        this.word.sql_id !== undefined &&
+        this.word.sql_id !== null &&
+        (Number(this.word.is_key) === 1 || Number(this.word.is_proofread) === 1)
     }
   },
   watch: {
@@ -264,6 +290,9 @@ export default {
     }
   },
   methods: {
+    fillProofreadText(text) {
+      this.proofread.cn = text || ''
+    },
     // getInfo() {
     //   this.loading = true
     //   fetchWord(this.id).then(response => {
@@ -342,7 +371,7 @@ export default {
     handleProofreadKeydown(event) {
       if (!event || event.key !== 'Enter') return
       if (event.shiftKey || event.isComposing) return
-      if (this.canProofread || this.submitting) return
+      if (this.canProofread || this.submitting || this.independentSubmitting) return
       event.preventDefault()
       this.createProofread()
     },
@@ -413,6 +442,46 @@ export default {
         this.$refs['dataForm'].clearValidate()
       })
     },
+    createIndependentTranslation() {
+      if (this.independentSubmitting) return
+      const cn = this.proofread.cn.trim().replace(/\n/g, '')
+      if (
+        countOccurrences(this.word.en_str, '{@') !== countOccurrences(cn, '{@') ||
+        countOccurrences(this.word.en_str, '}') !== countOccurrences(cn, '}')
+      ) {
+        this.$notify({
+          title: 'Error',
+          message: '无法新增，请核对文本中的标记符（类似{@spell light}）',
+          type: 'error',
+          duration: 5000
+        })
+        return
+      }
+      this.independentSubmitting = true
+      submitIndependentTranslation({
+        current_file: this.currentFile,
+        word_id: this.word.sql_id,
+        en_str: this.word.en_str,
+        cn,
+        uid: this.word.uid,
+        tag: this.word.tag
+      }).then((response) => {
+        const result = response.data.word || {}
+        const previousCnStr = this.word.cn_str
+        this.$message.success(response.data.reused ? '已切换到已有独立翻译' : '已新增独立翻译')
+        this.$emit('word-updated', {
+          ...this.word,
+          sql_id: result.id,
+          cn_str: result.cn,
+          is_key: result.is_key,
+          is_proofread: result.proofread,
+          previousCnStr
+        })
+        this.$emit('progress-updated', response.data.progress || {})
+      }).finally(() => {
+        this.independentSubmitting = false
+      })
+    },
     createProofread() {
       if (this.submitting) {
         return
@@ -470,7 +539,9 @@ export default {
         })
         this.$emit('progress-updated', response.data.progress || {})
         this.getProofreadList(createdWord.id || this.word.sql_id)
-        this.$emit('next-unproofread')
+        if (this.autoNextAfterProofread) {
+          this.$emit('next-unproofread')
+        }
       }).finally(() => {
         this.submitting = false
       })

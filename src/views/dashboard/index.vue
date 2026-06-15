@@ -12,19 +12,19 @@
         <span class="metric-meta">{{ overview.proofread || 0 }} / {{ overview.total || 0 }}</span>
       </article>
       <article class="metric-card neutral">
-        <span class="metric-label">文件总数</span>
-        <strong class="metric-value">{{ overview.file_count || 0 }}</strong>
-        <span class="metric-meta">已纳入进度统计的拆分文件</span>
-      </article>
-      <article class="metric-card neutral">
         <span class="metric-label">词条总数</span>
         <strong class="metric-value">{{ overview.word_count || 0 }}</strong>
         <span class="metric-meta">数据库中的全部词条</span>
       </article>
-      <article class="metric-card neutral">
-        <span class="metric-label">锁定文件数</span>
-        <strong class="metric-value">{{ overview.locked_files || 0 }}</strong>
-        <span class="metric-meta">当前不可直接查看的文件</span>
+      <article class="metric-card personal-translate">
+        <span class="metric-label">我翻译的数</span>
+        <strong class="metric-value">{{ overview.my_translate_count || 0 }}</strong>
+        <span class="metric-meta">由我最后修改的翻译词条</span>
+      </article>
+      <article class="metric-card personal-claim">
+        <span class="metric-label">我的占坑数</span>
+        <strong class="metric-value">{{ overview.my_claim_count || 0 }}</strong>
+        <span class="metric-meta">当前由我占坑的拆分文件</span>
       </article>
     </section>
 
@@ -44,6 +44,10 @@
             <p class="panel-kicker">最近 7 天</p>
             <h3 class="panel-title">校对与采纳趋势</h3>
           </div>
+          <el-radio-group v-model="trendScope" size="mini" @change="handleTrendScopeChange">
+            <el-radio-button label="mine">我的</el-radio-button>
+            <el-radio-button label="site">全站</el-radio-button>
+          </el-radio-group>
         </div>
         <div ref="trendChart" class="chart-surface" />
       </article>
@@ -57,7 +61,12 @@
             <h3 class="panel-title">用户校对总榜</h3>
           </div>
         </div>
-        <el-table :data="userRankTotal" size="mini" stripe>
+        <el-table
+          :data="userRankTotal"
+          :row-class-name="getRankRowClass"
+          size="mini"
+          stripe
+        >
           <el-table-column prop="rank" label="#" width="50" />
           <el-table-column prop="username" label="用户" min-width="120" />
           <el-table-column prop="proofread_count" label="提交" width="90" />
@@ -76,7 +85,12 @@
             <h3 class="panel-title">用户校对 7 日榜</h3>
           </div>
         </div>
-        <el-table :data="userRank7d" size="mini" stripe>
+        <el-table
+          :data="userRank7d"
+          :row-class-name="getRankRowClass"
+          size="mini"
+          stripe
+        >
           <el-table-column prop="rank" label="#" width="50" />
           <el-table-column prop="username" label="用户" min-width="120" />
           <el-table-column prop="proofread_count" label="提交" width="90" />
@@ -108,6 +122,11 @@ export default {
         proofread: [],
         accepted: []
       },
+      proofreadTrends7d: {
+        mine: { labels: [], proofread: [], accepted: [] },
+        site: { labels: [], proofread: [], accepted: [] }
+      },
+      trendScope: 'mine',
       userRankTotal: [],
       userRank7d: [],
       statusChart: null,
@@ -149,7 +168,12 @@ export default {
         const data = response.data || {}
         this.overview = data.overview || {}
         this.statusDistribution = data.status_distribution || []
-        this.proofreadTrend7d = data.proofread_trend_7d || { labels: [], proofread: [], accepted: [] }
+        this.proofreadTrends7d = data.proofread_trends_7d || {
+          mine: { labels: [], proofread: [], accepted: [] },
+          site: { labels: [], proofread: [], accepted: [] }
+        }
+        this.proofreadTrend7d = this.proofreadTrends7d[this.trendScope] ||
+          { labels: [], proofread: [], accepted: [] }
         this.userRankTotal = data.user_rank_total || []
         this.userRank7d = data.user_rank_7d || []
         this.$nextTick(() => {
@@ -159,6 +183,19 @@ export default {
       }).finally(() => {
         this.loading = false
       })
+    },
+    handleTrendScopeChange(scope) {
+      this.proofreadTrend7d = this.proofreadTrends7d[scope] ||
+        { labels: [], proofread: [], accepted: [] }
+      this.$nextTick(() => {
+        this.renderTrendChart()
+      })
+    },
+    getRankRowClass({ row }) {
+      if (!row.is_current_user) return ''
+      return row.is_supplemental
+        ? 'current-user-row current-user-row--supplemental'
+        : 'current-user-row'
     },
     renderStatusChart() {
       if (!this.$refs.statusChart) return
@@ -400,6 +437,23 @@ export default {
   color: #fff;
 }
 
+.metric-card.personal-translate {
+  color: #fff;
+  background: linear-gradient(135deg, #7c4dff 0%, #a66cff 100%);
+}
+
+.metric-card.personal-claim {
+  color: #fff;
+  background: linear-gradient(135deg, #e58b22 0%, #f2ae45 100%);
+}
+
+.metric-card.personal-translate .metric-label,
+.metric-card.personal-translate .metric-meta,
+.metric-card.personal-claim .metric-label,
+.metric-card.personal-claim .metric-meta {
+  color: rgba(255, 255, 255, 0.86);
+}
+
 .metric-card.neutral {
   background: #fff;
 }
@@ -451,6 +505,16 @@ export default {
 ::v-deep .el-table {
   border-radius: 14px;
   overflow: hidden;
+}
+
+::v-deep .el-table .current-user-row > td {
+  background: #eaf3ff !important;
+  color: #1f5fbf;
+  font-weight: 700;
+}
+
+::v-deep .el-table .current-user-row--supplemental > td {
+  border-top: 2px solid #8db9f5;
 }
 
 body.dark-mode .dashboard-page {
@@ -507,6 +571,15 @@ body.dark-mode .dashboard-page {
     background: rgba(19, 26, 37, 0.92) !important;
     border-color: rgba(59, 72, 93, 0.82) !important;
     color: #dce7f8 !important;
+  }
+
+  ::v-deep .el-table .current-user-row > td {
+    background: rgba(47, 111, 237, 0.2) !important;
+    color: #b9d2ff;
+  }
+
+  ::v-deep .el-table .current-user-row--supplemental > td {
+    border-top-color: #5f8fdc !important;
   }
 
   ::v-deep .el-table__row:hover > td {

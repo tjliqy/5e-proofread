@@ -1,6 +1,17 @@
 <template>
   <div class="menu-container">
+    <div class="claim-filters">
+      <span class="claim-filters__label">占坑筛选</span>
+      <el-radio-group v-model="claimFilter" size="small" @change="handleClaimFilterChange">
+        <el-radio-button label="all">全部</el-radio-button>
+        <el-radio-button label="unclaimed">未占坑</el-radio-button>
+        <el-radio-button label="mine">我的占坑</el-radio-button>
+      </el-radio-group>
+    </div>
     <div v-loading="loading" class="card-container" :element-loading-text="'加载中...'">
+      <div v-if="!loading && filteredFileTree.length === 0" class="empty-state">
+        当前筛选条件下没有文件或文件夹
+      </div>
       <div
         v-for="item in filteredFileTree"
         :key="item.file || item.label"
@@ -35,21 +46,71 @@
               同步
             </el-button>
           </div>
+          <div class="claim-actions">
+            <span
+              :class="['claim-owner', `claim-owner--${item.claimStatus}`]"
+              :title="item.claimUsername || item.claimNickname"
+            >
+              <i class="el-icon-user" />
+              {{ getClaimOwnerText(item) }}
+            </span>
+            <div class="claim-actions__buttons">
+              <el-button
+                v-if="canClaim(item)"
+                :loading="claimingFile === item.file"
+                type="primary"
+                size="mini"
+                plain
+                class="claim-button"
+                @click.stop="claimItem(item)"
+              >
+                {{ item.claimStatus === 'partial_mine' ? '补全占坑' : '占坑' }}
+              </el-button>
+              <el-button
+                v-if="item.claimStatus === 'mine' || item.claimStatus === 'partial_mine'"
+                :loading="claimingFile === item.file"
+                type="danger"
+                size="mini"
+                plain
+                class="claim-button"
+                @click.stop="releaseItem(item)"
+              >
+                取消占坑
+              </el-button>
+              <el-button
+                v-if="!canClaim(item) && item.claimStatus !== 'mine' && item.claimStatus !== 'partial_mine'"
+                type="info"
+                size="mini"
+                plain
+                disabled
+                class="claim-button"
+              >
+                已占坑
+              </el-button>
+            </div>
+          </div>
         </div>
         <div class="card-content">
           <div class="folder-stats">
             <div class="progress-wrapper">
               <div class="integrated-progress">
-                <el-progress
-                  v-if="item.total > 0"
-                  type="line"
-                  :percentage="item.proofreadPercentage"
-                  :stroke-width="10"
-                  :color="'#409EFF'"
-                  :show-text="false"
+                <span
+                  class="integrated-progress__bar integrated-progress__bar--translated"
+                  :style="{ width: item.translatePercentage + '%' }"
+                />
+                <span
+                  class="integrated-progress__bar integrated-progress__bar--proofread"
+                  :style="{ width: item.proofreadPercentage + '%' }"
                 />
               </div>
-              <span class="progress-text">校对：{{ item.proofread }}/{{ item.total }}</span>
+              <div class="progress-texts">
+                <span class="progress-text progress-text--translated">
+                  翻译 {{ item.translate }}/{{ item.total }}
+                </span>
+                <span class="progress-text progress-text--proofread">
+                  校对 {{ item.proofread }}/{{ item.total }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -59,7 +120,12 @@
 </template>
 
 <script>
-import { fetchSyncTaskStatus, syncFileProgress } from '@/api/files'
+import {
+  claimFile,
+  fetchSyncTaskStatus,
+  releaseFileClaim,
+  syncFileProgress
+} from '@/api/files'
 
 export default {
   name: 'FileMenu',
@@ -73,7 +139,9 @@ export default {
         label: 'label'
       },
       loading: false,
-      syncingFile: ''
+      syncingFile: '',
+      claimingFile: '',
+      claimFilter: 'all'
     }
   },
   computed: {
@@ -82,12 +150,21 @@ export default {
     },
     searchQuery() {
       return (this.$route.query.search || '').trim()
+    },
+    hideCompleted() {
+      if (this.$route.query.hide_completed === '1') return true
+      return localStorage.getItem('file-menu-hide-completed') === '1'
+    },
+    routeClaimFilter() {
+      const filter = this.$route.query.claim_filter
+      return ['unclaimed', 'mine'].includes(filter) ? filter : 'all'
     }
   },
   watch: {
     '$route.query': {
       immediate: true,
       handler() {
+        this.claimFilter = this.routeClaimFilter
         this.loadFiles(this.currentPath, true)
       }
     }
@@ -152,6 +229,10 @@ export default {
             translatePercentage: item.total > 0 ? Math.round((item.translate / item.total) * 100) : 0,
             proofreadPercentage: item.total > 0 ? Math.round((item.proofread / item.total) * 100) : 0,
             locked: item.locked || 0,
+            userId: item.user_id,
+            claimNickname: item.claim_nickname || '',
+            claimUsername: item.claim_username || '',
+            claimStatus: item.claim_status || 'unclaimed',
             isFolder: false
           }
           tree.push(fileNode)
@@ -169,18 +250,35 @@ export default {
             proofread: item.proofread || 0,
             translatePercentage: item.total > 0 ? Math.round((item.translate / item.total) * 100) : 0,
             proofreadPercentage: item.total > 0 ? Math.round((item.proofread / item.total) * 100) : 0,
+            userId: item.user_id,
+            claimNickname: item.claim_nickname || '',
+            claimUsername: item.claim_username || '',
+            claimStatus: item.claim_status || 'unclaimed',
             isFolder: true
           }
           tree.push(folderNode)
         }
       })
       this.fileTree = tree
+      this.applyFilters()
+    },
+    applyFilters() {
+      let visibleItems = this.hideCompleted
+        ? this.fileTree.filter(item => !this.isTranslationComplete(item))
+        : [...this.fileTree]
+      if (this.claimFilter === 'unclaimed') {
+        visibleItems = visibleItems.filter(item => item.claimStatus === 'unclaimed')
+      } else if (this.claimFilter === 'mine') {
+        visibleItems = visibleItems.filter(item => (
+          item.claimStatus === 'mine' || item.claimStatus === 'partial_mine'
+        ))
+      }
       if (!this.searchQuery) {
-        this.filteredFileTree = tree
+        this.filteredFileTree = visibleItems
         return
       }
       const query = this.searchQuery
-      this.filteredFileTree = [...this.fileTree]
+      this.filteredFileTree = visibleItems
         .map((item, index) => {
           const searchScore = this.getSearchScore(item.rawLabel || item.label, query)
           return {
@@ -194,6 +292,86 @@ export default {
           if (b.searchScore !== a.searchScore) return b.searchScore - a.searchScore
           return a.originalIndex - b.originalIndex
         })
+    },
+    isTranslationComplete(item) {
+      const total = Number(item.total) || 0
+      const translated = Number(item.translate) || 0
+      return total > 0 && translated >= total
+    },
+    handleClaimFilterChange(filter) {
+      const query = { ...this.$route.query }
+      if (filter === 'all') {
+        delete query.claim_filter
+      } else {
+        query.claim_filter = filter
+      }
+      this.$router.replace({ path: this.$route.path, query })
+    },
+    getClaimOwnerText(item) {
+      if (item.claimStatus === 'unclaimed') return '未占坑'
+      if (item.claimStatus === 'mixed') return '多人占坑'
+      if (item.claimStatus === 'partial_mine') return `${item.claimNickname || '我'}（部分）`
+      if (item.claimStatus === 'partial_claimed') return `${item.claimNickname || '已占坑'}（部分）`
+      return item.claimNickname || '已占坑'
+    },
+    canClaim(item) {
+      return item.claimStatus === 'unclaimed' || item.claimStatus === 'partial_mine'
+    },
+    claimItem(item, confirmed = false) {
+      this.claimingFile = item.file
+      return claimFile({
+        file: item.file,
+        is_folder: item.isFolder,
+        confirmed
+      }).then(response => {
+        const data = response.data || {}
+        if (data.requires_confirmation) {
+          this.claimingFile = ''
+          return this.$confirm(
+            `该${item.isFolder ? '文件夹' : '文件'}仍有 ${data.untranslated} 条未翻译内容，超过 2000 条。确定要占坑吗？`,
+            '占坑确认',
+            {
+              confirmButtonText: '确认占坑',
+              cancelButtonText: '取消',
+              type: 'warning'
+            }
+          ).then(() => this.claimItem(item, true))
+        }
+        this.$message.success('占坑成功')
+        return this.loadFiles(this.currentPath, true)
+      }).catch(error => {
+        if (error !== 'cancel' && error !== 'close') {
+          console.error(error)
+        }
+      }).finally(() => {
+        this.claimingFile = ''
+      })
+    },
+    releaseItem(item) {
+      this.$confirm(
+        `确定取消对“${item.rawLabel || item.label}”的占坑吗？`,
+        '取消占坑',
+        {
+          confirmButtonText: '确定取消',
+          cancelButtonText: '保留占坑',
+          type: 'warning'
+        }
+      ).then(() => {
+        this.claimingFile = item.file
+        return releaseFileClaim({
+          file: item.file,
+          is_folder: item.isFolder
+        })
+      }).then(() => {
+        this.$message.success('已取消占坑')
+        return this.loadFiles(this.currentPath, true)
+      }).catch(error => {
+        if (error !== 'cancel' && error !== 'close') {
+          console.error(error)
+        }
+      }).finally(() => {
+        this.claimingFile = ''
+      })
     },
     handleNodeClick(data) {
       // 如果正在加载中，不处理点击事件
@@ -285,6 +463,33 @@ export default {
   padding: 0;
 }
 
+.claim-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.claim-filters__label {
+  color: #606266;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  padding: 48px 20px;
+  border: 1px dashed #dcdfe6;
+  border-radius: 8px;
+  color: #909399;
+  text-align: center;
+  background: #fff;
+}
+
 .card-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -342,6 +547,9 @@ export default {
 
 .card-title__text {
   min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 
 .card-title__text mark {
@@ -353,6 +561,59 @@ export default {
 
 .file-icon {
   font-size: 20px;
+}
+
+.claim-owner {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  max-width: 200px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  color: #606266;
+  background: #f2f4f7;
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claim-owner--mine,
+.claim-owner--partial_mine {
+  color: #287348;
+  background: #e8f7ef;
+}
+
+.claim-owner--claimed,
+.claim-owner--partial_claimed,
+.claim-owner--mixed {
+  color: #9a6516;
+  background: #fff3dc;
+}
+
+.claim-button {
+  flex-shrink: 0;
+}
+
+.claim-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.claim-actions__buttons {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.claim-actions__buttons .el-button + .el-button {
+  margin-left: 0;
 }
 
 .folder-card .file-icon {
@@ -453,6 +714,24 @@ export default {
   color: #909399;
 }
 
+.progress-text--translated::before,
+.progress-text--proofread::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  content: "";
+}
+
+.progress-text--translated::before {
+  background: #E6A23C;
+}
+
+.progress-text--proofread::before {
+  background: #409EFF;
+}
+
 .integrated-progress {
   flex: 1;
   position: relative;
@@ -462,50 +741,38 @@ export default {
   background-color: #f3f4f6;
 }
 
-.integrated-progress .el-progress {
+.integrated-progress__bar {
   position: absolute;
   top: 0;
+  bottom: 0;
   left: 0;
-  width: 100%;
-  margin: 0;
+  border-radius: inherit;
+  transition: width 0.35s ease;
 }
 
-.integrated-progress .el-progress:first-child {
+.integrated-progress__bar--translated {
   z-index: 1;
+  background: #E6A23C;
 }
 
-.integrated-progress .el-progress:last-child {
+.integrated-progress__bar--proofread {
   z-index: 2;
-}
-
-/* 覆盖Element UI进度条样式 */
-.integrated-progress .el-progress__bar {
-  border-radius: 5px;
-}
-
-.integrated-progress .el-progress__bar-inner {
-  border-radius: 5px;
-}
-
-/* 调整进度条背景 */
-.integrated-progress .el-progress__bar__outer {
-  background-color: transparent;
-  border-radius: 5px;
-  overflow: visible;
-}
-
-/* 确保两个进度条可以叠加 */
-.integrated-progress .el-progress--line .el-progress__bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
+  background: #409EFF;
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
   .card-container {
     grid-template-columns: 1fr;
+  }
+
+  .claim-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .claim-actions__buttons {
+    width: 100%;
   }
 }
 /* 响应式设计 */
@@ -519,6 +786,21 @@ export default {
 <style lang="scss">
 body.dark-mode .menu-container {
   background-color: #2d2d2d;
+}
+
+body.dark-mode .menu-container .empty-state {
+  border-color: #555;
+  color: #aaa;
+  background-color: #333;
+}
+
+body.dark-mode .menu-container .claim-filters {
+  border-color: #444;
+  background-color: #333;
+}
+
+body.dark-mode .menu-container .claim-filters__label {
+  color: #c5cbd3;
 }
 
 body.dark-mode .menu-container h2 {
@@ -559,6 +841,56 @@ body.dark-mode .menu-container .locked-card .card-title {
 
 body.dark-mode .menu-container .card-title {
   color: #e0e0e0;
+}
+
+body.dark-mode .menu-container .claim-owner {
+  color: #d1d5db;
+  background: #444;
+}
+
+body.dark-mode .menu-container .claim-owner--mine,
+body.dark-mode .menu-container .claim-owner--partial_mine {
+  color: #9de2ba;
+  background: rgba(42, 121, 77, 0.35);
+}
+
+body.dark-mode .menu-container .claim-owner--claimed,
+body.dark-mode .menu-container .claim-owner--partial_claimed,
+body.dark-mode .menu-container .claim-owner--mixed {
+  color: #f1cc8c;
+  background: rgba(154, 101, 22, 0.3);
+}
+
+body.dark-mode .menu-container .claim-button.el-button--primary.is-plain {
+  color: #b9d7ff;
+  border-color: #4f8edc;
+  background: rgba(47, 111, 237, 0.22);
+}
+
+body.dark-mode .menu-container .claim-button.el-button--primary.is-plain:hover,
+body.dark-mode .menu-container .claim-button.el-button--primary.is-plain:focus {
+  color: #fff;
+  border-color: #6da8ef;
+  background: #3478cf;
+}
+
+body.dark-mode .menu-container .claim-button.el-button--danger.is-plain {
+  color: #ffb3b3;
+  border-color: #c85b5b;
+  background: rgba(210, 70, 70, 0.2);
+}
+
+body.dark-mode .menu-container .claim-button.el-button--danger.is-plain:hover,
+body.dark-mode .menu-container .claim-button.el-button--danger.is-plain:focus {
+  color: #fff;
+  border-color: #e47878;
+  background: #c84f4f;
+}
+
+body.dark-mode .menu-container .claim-button.el-button--info.is-plain.is-disabled {
+  color: #aab2bf;
+  border-color: #596273;
+  background: #414854;
 }
 
 body.dark-mode .menu-container .card-title__text mark {

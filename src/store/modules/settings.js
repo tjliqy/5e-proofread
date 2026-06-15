@@ -3,13 +3,20 @@ import defaultSettings from '@/settings'
 
 const { showSettings, tagsView, fixedHeader, sidebarLogo, darkMode } = defaultSettings
 
+const getPreferredDarkMode = () => {
+  if (typeof window === 'undefined' || !window.matchMedia) {
+    return darkMode
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
 const state = {
   theme: variables.theme,
   showSettings: showSettings,
   tagsView: tagsView,
   fixedHeader: fixedHeader,
   sidebarLogo: sidebarLogo,
-  darkMode: darkMode
+  darkMode: getPreferredDarkMode()
 }
 
 const mutations = {
@@ -33,4 +40,3 @@ export default {
   mutations,
   actions
 }
-

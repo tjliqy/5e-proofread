@@ -1,6 +1,9 @@
 import { fetchFiles } from '@/api/files'
 // import { reject } from 'core-js/fn/promise'
 
+const requestVersions = {}
+const pendingRequests = {}
+
 const state = {
   files: {},
   currentFilePath: '',
@@ -30,25 +33,30 @@ const mutations = {
 
 const actions = {
   loadJsonFiles({ commit, state }, { file_path, force = false }) {
-    return new Promise((resolve, reject) => {
-      if (!force && state.files[file_path] !== undefined) {
-        resolve(state.files[file_path])
-        return
-      }
-      fetchFiles(file_path).then(response => {
-        const { data } = response
+    if (!force && state.files[file_path] !== undefined) {
+      return Promise.resolve(state.files[file_path])
+    }
 
-        if (!data) {
-          reject('No data')
-        }
-        // commit('CLEAR_JSON_FILES')
-        console.log(file_path)
-        commit('ADD_JSON_FILES', { 'file': file_path, 'data': data })
-        resolve(state.files[file_path])
-      }).catch(error => {
-        reject(error)
-      })
+    const version = (requestVersions[file_path] || 0) + 1
+    requestVersions[file_path] = version
+    const requestPromise = fetchFiles(file_path, force).then(response => {
+      const { data } = response
+      if (!data) {
+        return Promise.reject(new Error('No data'))
+      }
+      if (requestVersions[file_path] !== version) {
+        return pendingRequests[file_path] || state.files[file_path] || data
+      }
+      console.log(file_path)
+      commit('ADD_JSON_FILES', { 'file': file_path, 'data': data })
+      return data
+    }).finally(() => {
+      if (pendingRequests[file_path] === requestPromise) {
+        delete pendingRequests[file_path]
+      }
     })
+    pendingRequests[file_path] = requestPromise
+    return requestPromise
   },
   clearJsonFiles({ commit }) {
     commit('CLEAR_JSON_FILES')

@@ -1,36 +1,48 @@
 <template>
   <div v-loading="loading" class="render-preview" element-loading-text="加载预览中...">
     <div v-if="message" class="render-preview__message" v-html="message" />
-    <div v-else class="render-preview__columns">
-      <div class="render-preview__legend">
-        <span class="render-preview__legend-item">
-          <span class="render-preview__legend-dot render-preview__legend-dot--proofread" />
-          已确认文本
-        </span>
-        <span class="render-preview__legend-item">
-          <span class="render-preview__legend-dot render-preview__legend-dot--pending" />
-          有校对未确认的文本
-        </span>
-        <span class="render-preview__legend-item">
-          <span class="render-preview__legend-dot render-preview__legend-dot--unconfirmed" />
-          未确认文本
-        </span>
-      </div>
+    <div
+      v-else
+      ref="columns"
+      class="render-preview__columns"
+      :style="columnGridStyle"
+    >
       <section
         ref="englishColumn"
-        class="render-preview__column"
+        :class="[
+          'render-preview__column',
+          'render-preview__column--english',
+          { 'render-preview__column--collapsed': englishCollapsed }
+        ]"
         @mousedown.capture="handlePreviewPointerDown($event, 'en')"
-        @click.capture="handlePreviewClick($event, 'en')"
+        @click.capture="handleEnglishColumnClick"
         @scroll.passive="handleColumnScroll('en')"
       >
-        <h3 class="render-preview__title">英文原文（main）</h3>
+        <div class="render-preview__title">
+          <span>英文原文（main）</span>
+          <button
+            type="button"
+            class="render-preview__collapse-button"
+            :title="englishCollapsed ? '展开英文原文' : '折叠英文原文'"
+            @click.stop="toggleEnglishColumn"
+          >
+            <i :class="englishCollapsed ? 'el-icon-d-arrow-right' : 'el-icon-d-arrow-left'" />
+          </button>
+        </div>
         <table
           v-if="englishOutputHtml"
+          v-show="!englishCollapsed"
           class="render-preview__content w-100 stats"
           v-html="englishOutputHtml"
         />
-        <div v-else class="render-preview__empty">暂无英文内容</div>
+        <div v-else v-show="!englishCollapsed" class="render-preview__empty">暂无英文内容</div>
       </section>
+      <button
+        type="button"
+        class="render-preview__resizer"
+        title="拖动调整英文和中文栏宽度"
+        @mousedown.prevent="startColumnResize"
+      />
       <section
         ref="chineseColumn"
         class="render-preview__column"
@@ -86,10 +98,19 @@ export default {
       chineseOutputHtml: '',
       message: '',
       scrollSyncFrame: null,
-      scrollSyncSource: ''
+      scrollSyncSource: '',
+      englishCollapsed: false,
+      englishWidthPercent: 50,
+      resizingColumns: false
     }
   },
   computed: {
+    columnGridStyle() {
+      const englishWidth = this.englishCollapsed ? '42px' : `${this.englishWidthPercent}%`
+      return {
+        gridTemplateColumns: `${englishWidth} 8px minmax(240px, 1fr)`
+      }
+    },
     jobsByEnglishKey() {
       return this.jobs.reduce((result, job) => {
         if (job && job.en_str) {
@@ -137,8 +158,56 @@ export default {
     if (this.scrollSyncFrame) {
       cancelAnimationFrame(this.scrollSyncFrame)
     }
+    this.removeColumnResizeListeners()
   },
   methods: {
+    handleEnglishColumnClick(event) {
+      if (this.englishCollapsed) {
+        event.stopPropagation()
+        this.toggleEnglishColumn()
+        return
+      }
+      this.handlePreviewClick(event, 'en')
+    },
+    toggleEnglishColumn() {
+      this.englishCollapsed = !this.englishCollapsed
+      this.$nextTick(() => {
+        this.$emit('layout-updated')
+      })
+    },
+    startColumnResize() {
+      if (this.englishCollapsed) {
+        this.englishCollapsed = false
+      }
+      this.resizingColumns = true
+      window.addEventListener('mousemove', this.handleColumnResize)
+      window.addEventListener('mouseup', this.stopColumnResize)
+      document.body.classList.add('render-preview-resizing')
+    },
+    handleColumnResize(event) {
+      if (!this.resizingColumns || !this.$refs.columns) return
+      const rect = this.$refs.columns.getBoundingClientRect()
+      const availableWidth = rect.width - 8
+      if (availableWidth <= 0) return
+      const minColumnWidth = Math.min(240, availableWidth * 0.35)
+      const englishWidth = Math.min(
+        Math.max(event.clientX - rect.left, minColumnWidth),
+        availableWidth - minColumnWidth
+      )
+      this.englishWidthPercent = (englishWidth / availableWidth) * 100
+      this.$emit('layout-updated')
+    },
+    stopColumnResize() {
+      if (!this.resizingColumns) return
+      this.resizingColumns = false
+      this.removeColumnResizeListeners()
+      this.$emit('layout-updated')
+    },
+    removeColumnResizeListeners() {
+      window.removeEventListener('mousemove', this.handleColumnResize)
+      window.removeEventListener('mouseup', this.stopColumnResize)
+      document.body.classList.remove('render-preview-resizing')
+    },
     async prepareAndLoad(filePath) {
       this.loading = true
       try {
@@ -316,6 +385,7 @@ export default {
       this.$nextTick(() => {
         this.decorateColumn(this.$refs.englishColumn, 'en')
         this.decorateColumn(this.$refs.chineseColumn, 'cn')
+        this.$emit('layout-updated')
       })
     },
     decorateColumn(column, language) {
@@ -355,9 +425,12 @@ export default {
       return 'render-preview__entry--unconfirmed'
     },
     handleColumnScroll(language) {
+      this.$emit('layout-updated')
       if (this.scrollSyncSource && this.scrollSyncSource !== language) {
         return
       }
+      const source = language === 'en' ? this.$refs.englishColumn : this.$refs.chineseColumn
+      this.$emit('preview-scroll', source ? source.scrollTop : 0)
       this.scrollSyncSource = language
       if (this.scrollSyncFrame) {
         cancelAnimationFrame(this.scrollSyncFrame)
@@ -474,48 +547,10 @@ export default {
 
 .render-preview__columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
-  min-width: 900px;
-  height: 100%;
-}
-
-.render-preview__legend {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 1px solid #e4eaf3;
-  border-radius: 10px;
-  background: rgba(247, 249, 252, 0.96);
-  color: #506078;
-  font-size: 12px;
-}
-
-.render-preview__legend-item {
-  display: inline-flex;
-  align-items: center;
+  grid-template-rows: minmax(0, 1fr);
   gap: 6px;
-}
-
-.render-preview__legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-}
-
-.render-preview__legend-dot--proofread {
-  background: #67c23a;
-}
-
-.render-preview__legend-dot--pending {
-  background: #e6a23c;
-}
-
-.render-preview__legend-dot--unconfirmed {
-  background: #409eff;
+  min-width: 560px;
+  height: 100%;
 }
 
 .render-preview__column {
@@ -528,7 +563,23 @@ export default {
   background: #fff;
 }
 
+.render-preview__column--collapsed {
+  overflow: hidden;
+  padding-right: 0;
+  padding-left: 0;
+  cursor: pointer;
+}
+
+.render-preview__column--collapsed:hover {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+
 .render-preview__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 -12px 12px;
   padding: 10px 12px;
   border-bottom: 1px solid #e4eaf3;
@@ -536,6 +587,66 @@ export default {
   background: #f7f9fc;
   color: #334155;
   font-size: 13px;
+  line-height: 18px;
+}
+
+.render-preview__column--collapsed .render-preview__title {
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  height: 100%;
+  margin: 0;
+  padding: 8px 6px;
+  border: 0;
+  writing-mode: vertical-rl;
+  box-sizing: border-box;
+}
+
+.render-preview__collapse-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #d8e1ec;
+  border-radius: 6px;
+  color: #409eff;
+  background: #fff;
+  cursor: pointer;
+}
+
+.render-preview__collapse-button:hover {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+
+.render-preview__resizer {
+  position: relative;
+  width: 8px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.render-preview__resizer::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: #d8e1ec;
+  content: "";
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.render-preview__resizer:hover::before {
+  background: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.14);
 }
 
 .render-preview__empty {
@@ -573,7 +684,14 @@ export default {
 }
 
 .render-preview__column ::v-deep .render-preview__entry--active {
-  border-radius: 4px;
-  box-shadow: 0 0 0 2px rgba(255, 145, 0, 0.5);
+  position: relative;
+  z-index: 2;
+  border-radius: 5px;
+  color: #b42318 !important;
+  background: rgba(255, 224, 224, 0.94) !important;
+  box-shadow:
+    0 0 0 3px rgba(245, 108, 108, 0.72),
+    0 7px 18px rgba(245, 108, 108, 0.28);
+  font-weight: 700;
 }
 </style>

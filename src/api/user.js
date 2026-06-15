@@ -39,6 +39,14 @@ export function getInfo(token) {
   })
 }
 
+export function updateProfile(data) {
+  return request({
+    url: '/user',
+    method: 'put',
+    data
+  })
+}
+
 export function logout() {
   return request({
     url: '/logout',

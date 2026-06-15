@@ -8,7 +8,12 @@
   >
     <el-container class="file-layout">
       <el-main class="file-main">
-        <split-pane split="horizontal" class="file-split-pane">
+        <split-pane
+          split="horizontal"
+          class="file-split-pane"
+          :min-percent="4"
+          :default-percent="proofreadCollapsed ? 94 : 55"
+        >
           <template slot="paneL" style="overflow-y:scroll;">
             <div
               ref="leftPane"
@@ -16,43 +21,177 @@
               @scroll.passive="handlePaneScroll"
               @contextmenu="handleTextContextMenu"
             >
-              <render-preview
-                :file-path="file_path"
-                :english-content="json_txt"
-                :chinese-content="cn_json_txt"
-                :jobs="jobSequence"
-                :current-word-key="activeWordKey"
-                @to-proofread="toProofread"
-              />
+              <div ref="batchWorkspace" class="inline-batch-workspace">
+                <svg v-if="batchSegments.length" class="inline-batch-lines">
+                  <g
+                    v-for="line in batchLinePaths"
+                    :key="line.id"
+                    class="inline-batch-line-group"
+                    @mouseenter="batchHoveredLineId = line.id"
+                    @mouseleave="batchHoveredLineId = ''"
+                  >
+                    <path
+                      :d="line.path"
+                      :class="['inline-batch-line', `inline-batch-line--${line.status}`]"
+                    />
+                    <path :d="line.path" class="inline-batch-line-hit" />
+                    <g
+                      v-if="batchHoveredLineId === line.id"
+                      class="inline-batch-line-remove"
+                      @mousedown.stop.prevent
+                      @click.stop.prevent="unlinkBatchSegment(line.segmentId)"
+                    >
+                      <title>解除</title>
+                      <circle :cx="line.midX" :cy="line.midY" r="9" />
+                      <text :x="line.midX" :y="line.midY">×</text>
+                    </g>
+                  </g>
+                  <path
+                    v-if="batchDrag.active"
+                    :d="batchDrag.path"
+                    class="inline-batch-line inline-batch-line--dragging"
+                  />
+                </svg>
+                <render-preview
+                  ref="renderPreview"
+                  class="inline-batch-preview"
+                  :file-path="file_path"
+                  :english-content="json_txt"
+                  :chinese-content="cn_json_txt"
+                  :jobs="jobSequence"
+                  :current-word-key="activeWordKey"
+                  @to-proofread="handlePreviewProofread"
+                  @layout-updated="refreshBatchLines"
+                  @preview-scroll="handlePreviewScroll"
+                />
+                <button
+                  v-if="batchSegments.length"
+                  type="button"
+                  class="inline-batch-panel-resizer"
+                  title="拖动调整导入译文栏宽度"
+                  @mousedown.prevent="startBatchPanelResize"
+                />
+                <aside
+                  v-if="batchSegments.length"
+                  ref="batchPanel"
+                  class="inline-batch-panel"
+                  :style="{ width: `${batchPanelWidth}px` }"
+                  @scroll="refreshBatchLines"
+                >
+                  <div class="inline-batch-panel__header">
+                    <div>
+                      <strong>导入译文</strong>
+                      <span>{{ batchLinks.length }}/{{ batchSegments.length }}</span>
+                    </div>
+                    <div>
+                      <el-button type="text" size="mini" @click="clearBatchImport">清空</el-button>
+                      <el-button type="primary" size="mini" :loading="batchSubmitting" @click="submitBatchImport">
+                        最终确认
+                      </el-button>
+                    </div>
+                  </div>
+                  <div
+                    v-for="segment in batchSegments"
+                    :key="segment.id"
+                    :ref="`batch-segment-${segment.id}`"
+                    :class="[
+                      'inline-batch-segment',
+                      {
+                        'inline-batch-segment--unmatched': !getBatchLinkBySegment(segment.id),
+                        'inline-batch-segment--active': isActiveBatchSegment(segment.id)
+                      }
+                    ]"
+                    @click="connectBatchSegment(segment.id)"
+                  >
+                    <button
+                      v-if="!getBatchLinkBySegment(segment.id)"
+                      type="button"
+                      class="inline-batch-segment__connector"
+                      title="拖动连接到中文译文"
+                      @mousedown.stop.prevent="startBatchLinkDrag(segment.id, $event)"
+                    />
+                    <el-input
+                      v-model="segment.text"
+                      type="textarea"
+                      :autosize="{ minRows: 1, maxRows: 5 }"
+                      @click.native.stop
+                      @input="handleBatchSegmentInput(segment.id)"
+                      @blur="finalizeBatchSegmentInput(segment.id)"
+                    />
+                    <div class="inline-batch-segment__meta">
+                      <span v-if="getBatchLinkBySegment(segment.id)">
+                        {{ getBatchLinkLabel(getBatchLinkBySegment(segment.id)) }}
+                      </span>
+                      <span v-else>未匹配</span>
+                      <el-button
+                        v-if="getBatchLinkBySegment(segment.id)"
+                        type="text"
+                        size="mini"
+                        @click.stop="unlinkBatchSegment(segment.id)"
+                      >
+                        解除
+                      </el-button>
+                    </div>
+                    <el-button-group v-if="getBatchSegmentTags(segment.id).length" class="inline-batch-tags">
+                      <el-button
+                        v-for="(tag, index) in getBatchSegmentTags(segment.id)"
+                        :key="index"
+                        size="mini"
+                        type="primary"
+                        @click.stop="handleCopy(tag.cn, $event)"
+                      >
+                        {{ tag.cn }}
+                      </el-button>
+                    </el-button-group>
+                  </div>
+                </aside>
+              </div>
             </div>
           </template>
           <template slot="paneR">
-            <div
-              ref="rightPane"
-              class="proofread-content"
-              @scroll.passive="handlePaneScroll"
-            >
-              <div v-if="temp.sql_id === undefined" class="proofread-empty">
-                <h3>校对窗口:请先选择要校对的文本</h3>
+            <div class="proofread-pane">
+              <button
+                type="button"
+                class="proofread-pane__toggle"
+                @click="proofreadCollapsed = !proofreadCollapsed"
+              >
+                <span>{{ proofreadCollapsed ? '展开校对面板' : '收起校对面板' }}</span>
+                <i :class="proofreadCollapsed ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+              </button>
+              <div
+                v-show="!proofreadCollapsed"
+                ref="rightPane"
+                class="proofread-content"
+                @scroll.passive="handlePaneScroll"
+              >
+                <div v-if="temp.sql_id === undefined" class="proofread-empty">
+                  <h3>校对窗口:请先选择要校对的文本</h3>
+                </div>
+                <proofread
+                  v-else
+                  ref="proofread"
+                  :word="temp"
+                  :jobs="jobSequence"
+                  :current-file="file_path"
+                  :has-next-unproofread="hasNextUnproofread"
+                  :has-previous-unproofread="hasPreviousUnproofread"
+                  :auto-next-after-proofread="autoNextAfterProofread"
+                  @previous-unproofread="goToPreviousUnproofread"
+                  @progress-updated="handleProgressUpdated"
+                  @next-unproofread="goToNextUnproofread"
+                  @word-updated="handleWordUpdated"
+                />
               </div>
-              <proofread
-                v-else
-                ref="proofread"
-                :word="temp"
-                :jobs="jobSequence"
-                :current-file="file_path"
-                :has-next-unproofread="hasNextUnproofread"
-                :has-previous-unproofread="hasPreviousUnproofread"
-                @previous-unproofread="goToPreviousUnproofread"
-                @progress-updated="handleProgressUpdated"
-                @next-unproofread="goToNextUnproofread"
-                @word-updated="handleWordUpdated"
-              />
             </div>
           </template>
         </split-pane>
       </el-main>
     </el-container>
+    <batch-proofread
+      ref="batchProofread"
+      :jobs="jobSequence"
+      @analyzed="handleBatchAnalyzed"
+    />
     <div
       v-if="textContextMenu.visible"
       class="text-context-menu"
@@ -70,10 +209,18 @@
 import Proofread from '@/components/Proofread'
 import splitPane from 'vue-splitpane'
 import RenderPreview from '@/components/RenderPreview'
+import BatchProofread from '@/components/BatchProofread'
+import { createBatchProofread } from '@/api/proofread'
+import {
+  getCopyableTagPairs,
+  prepareImportedTranslation,
+  validateTranslationTags
+} from '@/utils/batch-proofread'
+import clip from '@/utils/clipboard'
 
 export default {
   name: 'FileList',
-  components: { Proofread, splitPane, RenderPreview },
+  components: { Proofread, splitPane, RenderPreview, BatchProofread },
   data() {
     return {
       drawVisible: false,
@@ -99,7 +246,24 @@ export default {
       },
       source: '',
       jobSequence: [],
+      batchTargets: [],
+      batchSegments: [],
+      batchLinks: [],
+      batchLinePaths: [],
+      batchPendingTargetId: '',
+      batchHoveredLineId: '',
+      batchDrag: {
+        active: false,
+        segmentId: '',
+        targetId: '',
+        path: ''
+      },
+      batchSubmitting: false,
+      batchPanelWidth: 330,
+      resizingBatchPanel: false,
       headerCollapsed: false,
+      proofreadCollapsed: true,
+      autoNextAfterProofread: true,
       textContextMenu: {
         visible: false,
         left: 0,
@@ -111,6 +275,11 @@ export default {
   computed: {
     activeWordKey() {
       return this.temp && this.temp.en_str ? this.temp.en_str.toLowerCase() : ''
+    },
+    activeBatchTargetId() {
+      if (!this.temp || !this.temp.uid) return ''
+      const target = this.batchTargets.find(item => item.job.uid === this.temp.uid)
+      return target ? target.id : ''
     },
     hasNextUnproofread() {
       const currentIndex = this.findCurrentWordIndex()
@@ -138,10 +307,14 @@ export default {
       if (this.$route.query.file_path) {
         this.loadJsonFile(this.$route.query.file_path, true)
       }
+    },
+    jobSequence() {
+      this.updateHeaderToolbarState()
     }
   },
   // 添加created钩子和watch路由参数变化的逻辑
   created() {
+    this.restoreAutoNextAfterProofread()
     // 检查路由参数，如果有file_path则直接加载该文件
     if (this.$route.query.file_path) {
       this.loadJsonFile(this.$route.query.file_path)
@@ -151,13 +324,70 @@ export default {
   beforeDestroy() {
     document.removeEventListener('click', this.closeTextContextMenu)
     window.removeEventListener('keydown', this.handleGlobalKeydown)
+    window.removeEventListener('resize', this.refreshBatchLines)
+    window.removeEventListener('file-proofread-batch-import', this.openBatchProofread)
+    window.removeEventListener('file-proofread-auto-next-change', this.handleAutoNextAfterProofreadChange)
+    this.removeBatchDragListeners()
+    this.removeBatchPanelResizeListeners()
     this.updateHeaderCompact(false)
+    this.updateHeaderToolbarState(false)
   },
   mounted() {
     document.addEventListener('click', this.closeTextContextMenu)
     window.addEventListener('keydown', this.handleGlobalKeydown)
+    window.addEventListener('resize', this.refreshBatchLines)
+    window.addEventListener('file-proofread-batch-import', this.openBatchProofread)
+    window.addEventListener('file-proofread-auto-next-change', this.handleAutoNextAfterProofreadChange)
+    this.updateHeaderToolbarState()
   },
   methods: {
+    restoreAutoNextAfterProofread() {
+      this.autoNextAfterProofread = window.localStorage.getItem('file-proofread-auto-next') !== 'false'
+    },
+    handleAutoNextAfterProofreadChange(event) {
+      if (!event || !event.detail) return
+      this.autoNextAfterProofread = event.detail.enabled !== false
+    },
+    startBatchPanelResize() {
+      this.resizingBatchPanel = true
+      window.addEventListener('mousemove', this.handleBatchPanelResize)
+      window.addEventListener('mouseup', this.stopBatchPanelResize)
+      document.body.classList.add('batch-panel-resizing')
+    },
+    handleBatchPanelResize(event) {
+      if (!this.resizingBatchPanel || !this.$refs.batchWorkspace) return
+      const rect = this.$refs.batchWorkspace.getBoundingClientRect()
+      const maxWidth = Math.max(280, rect.width - 560)
+      this.batchPanelWidth = Math.min(
+        Math.max(rect.right - event.clientX, 240),
+        maxWidth
+      )
+      this.refreshBatchLines()
+    },
+    stopBatchPanelResize() {
+      if (!this.resizingBatchPanel) return
+      this.resizingBatchPanel = false
+      this.removeBatchPanelResizeListeners()
+      this.refreshBatchLines()
+    },
+    removeBatchPanelResizeListeners() {
+      window.removeEventListener('mousemove', this.handleBatchPanelResize)
+      window.removeEventListener('mouseup', this.stopBatchPanelResize)
+      document.body.classList.remove('batch-panel-resizing')
+    },
+    openBatchProofread() {
+      if (!this.jobSequence.length || !this.$refs.batchProofread) return
+      this.$refs.batchProofread.open()
+    },
+    updateHeaderToolbarState(active = true) {
+      if (typeof window === 'undefined') return
+      window.dispatchEvent(new CustomEvent('file-proofread-toolbar-state', {
+        detail: {
+          active,
+          canBatchImport: active && this.jobSequence.length > 0
+        }
+      }))
+    },
     handleTextContextMenu(event) {
       const selection = window.getSelection ? window.getSelection().toString().trim() : ''
       if (!selection) {
@@ -179,6 +409,7 @@ export default {
     handleGlobalKeydown(event) {
       if (event.key === 'Escape') {
         this.closeTextContextMenu()
+        this.cancelBatchLinkDrag()
       }
     },
     searchSelectionInChm() {
@@ -192,7 +423,21 @@ export default {
     },
     handlePaneScroll(event) {
       this.closeTextContextMenu()
-      const shouldCollapse = event && event.target ? event.target.scrollTop > 36 : false
+      this.updateHeaderFromScroll(event && event.target ? event.target.scrollTop : 0)
+    },
+    handlePreviewScroll(scrollTop) {
+      this.closeTextContextMenu()
+      this.updateHeaderFromScroll(scrollTop)
+    },
+    updateHeaderFromScroll(scrollTop) {
+      const normalizedScrollTop = Math.max(Number(scrollTop) || 0, 0)
+      if (!this.headerCollapsed && normalizedScrollTop >= 56) {
+        this.setHeaderCollapsed(true)
+      } else if (this.headerCollapsed && normalizedScrollTop <= 8) {
+        this.setHeaderCollapsed(false)
+      }
+    },
+    setHeaderCollapsed(shouldCollapse) {
       if (shouldCollapse === this.headerCollapsed) {
         return
       }
@@ -217,6 +462,9 @@ export default {
       if (file_path === '') {
         this.$message.error('请选择文件')
         return
+      }
+      if (this.file_path && this.file_path !== file_path) {
+        this.clearBatchImport()
       }
       this.headerCollapsed = false
       this.updateHeaderCompact(false)
@@ -269,6 +517,293 @@ export default {
         total: fileProgress.total || 0,
         translate: fileProgress.translate || 0,
         proofread: fileProgress.proofread || 0
+      })
+    },
+    handleBatchSubmitted(data) {
+      const updatedByUid = (data.items || []).reduce((result, item) => {
+        result[item.uid] = item
+        return result
+      }, {})
+      this.jobSequence = this.jobSequence.map((job) => {
+        const updated = updatedByUid[job.uid]
+        return updated ? { ...job, ...updated } : job
+      })
+      this.handleProgressUpdated(data.progress || {})
+      this.loadJsonFile(this.file_path, true)
+    },
+    handleBatchAnalyzed(data) {
+      this.batchTargets = data.targets
+      this.batchSegments = data.segments
+      this.batchLinks = data.links.map(link => ({
+        ...link,
+        id: `${link.targetId}-${link.segmentId}`
+      }))
+      this.batchPendingTargetId = ''
+      this.refreshBatchLines()
+    },
+    clearBatchImport() {
+      this.batchTargets = []
+      this.batchSegments = []
+      this.batchLinks = []
+      this.batchLinePaths = []
+      this.batchPendingTargetId = ''
+      this.batchHoveredLineId = ''
+      this.cancelBatchLinkDrag()
+    },
+    handlePreviewProofread(row, wordKey) {
+      this.toProofread(row, wordKey)
+    },
+    getBatchLinkBySegment(segmentId) {
+      return this.batchLinks.find(link => link.segmentId === segmentId)
+    },
+    isActiveBatchSegment(segmentId) {
+      const link = this.getBatchLinkBySegment(segmentId)
+      return Boolean(link && link.targetId === this.activeBatchTargetId)
+    },
+    scrollToLinkedBatchSegment(targetId) {
+      const link = this.batchLinks.find(item => item.targetId === targetId)
+      if (!link) return
+      this.$nextTick(() => {
+        const segmentRef = this.$refs[`batch-segment-${link.segmentId}`]
+        const segment = Array.isArray(segmentRef) ? segmentRef[0] : segmentRef
+        if (segment && typeof segment.scrollIntoView === 'function') {
+          segment.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      })
+    },
+    connectBatchSegment(segmentId) {
+      if (!this.batchPendingTargetId) {
+        const existing = this.getBatchLinkBySegment(segmentId)
+        if (existing) this.batchPendingTargetId = existing.targetId
+        return
+      }
+      this.batchLinks = this.batchLinks.filter(link => {
+        return link.targetId !== this.batchPendingTargetId && link.segmentId !== segmentId
+      })
+      const link = this.createBatchLink(this.batchPendingTargetId, segmentId)
+      const segment = this.batchSegments.find(item => item.id === segmentId)
+      segment.text = link.cn
+      this.batchLinks.push(link)
+      this.batchPendingTargetId = ''
+      this.refreshBatchLines()
+    },
+    createBatchLink(targetId, segmentId, score = 0, confidence = 'manual') {
+      const target = this.batchTargets.find(item => item.id === targetId)
+      const segment = this.batchSegments.find(item => item.id === segmentId)
+      const restored = prepareImportedTranslation(target.job, segment.text, this.jobSequence)
+      return {
+        id: `${targetId}-${segmentId}`,
+        targetId,
+        segmentId,
+        score,
+        confidence,
+        cn: restored.text,
+        unresolvedTags: restored.unresolvedTags
+      }
+    },
+    unlinkBatchSegment(segmentId) {
+      this.batchLinks = this.batchLinks.filter(link => link.segmentId !== segmentId)
+      this.refreshBatchLines()
+    },
+    startBatchLinkDrag(segmentId, event) {
+      const workspace = this.$refs.batchWorkspace
+      if (!workspace || this.getBatchLinkBySegment(segmentId)) return
+      const connector = event.currentTarget
+      const workspaceRect = workspace.getBoundingClientRect()
+      const connectorRect = connector.getBoundingClientRect()
+      const startX = connectorRect.left + (connectorRect.width / 2) - workspaceRect.left
+      const startY = connectorRect.top + (connectorRect.height / 2) - workspaceRect.top
+      this.batchDrag = {
+        active: true,
+        segmentId,
+        targetId: '',
+        startX,
+        startY,
+        path: `M ${startX} ${startY} L ${startX} ${startY}`
+      }
+      window.addEventListener('mousemove', this.handleBatchLinkDrag)
+      window.addEventListener('mouseup', this.finishBatchLinkDrag)
+    },
+    handleBatchLinkDrag(event) {
+      if (!this.batchDrag.active) return
+      const workspace = this.$refs.batchWorkspace
+      if (!workspace) return
+      const workspaceRect = workspace.getBoundingClientRect()
+      const endX = event.clientX - workspaceRect.left
+      const endY = event.clientY - workspaceRect.top
+      const curve = Math.max((this.batchDrag.startX - endX) * 0.45, 32)
+      this.batchDrag.path = `M ${this.batchDrag.startX} ${this.batchDrag.startY} C ${this.batchDrag.startX - curve} ${this.batchDrag.startY}, ${endX + curve} ${endY}, ${endX} ${endY}`
+      this.updateBatchDragTarget(event.clientX, event.clientY)
+    },
+    updateBatchDragTarget(clientX, clientY) {
+      const preview = this.$refs.renderPreview
+      const chineseColumn = preview && preview.$refs.chineseColumn
+      if (!chineseColumn) return
+      const hit = document.elementsFromPoint(clientX, clientY).find((element) => {
+        return element &&
+          element.getAttribute &&
+          element.getAttribute('data-word-key') &&
+          chineseColumn.contains(element)
+      })
+      const wordKey = hit ? hit.getAttribute('data-word-key') : ''
+      const target = wordKey
+        ? this.batchTargets.find(item => item.job.en_str.toLowerCase() === wordKey)
+        : null
+      const targetId = target ? target.id : ''
+      if (targetId === this.batchDrag.targetId) return
+      this.clearBatchDragTargetHighlight()
+      this.batchDrag.targetId = targetId
+      if (targetId) {
+        this.getBatchTargetElements(targetId).forEach(element => {
+          element.classList.add('render-preview__entry--drag-target')
+        })
+      }
+    },
+    finishBatchLinkDrag() {
+      if (this.batchDrag.active && this.batchDrag.targetId) {
+        this.batchPendingTargetId = this.batchDrag.targetId
+        this.connectBatchSegment(this.batchDrag.segmentId)
+      }
+      this.cancelBatchLinkDrag()
+    },
+    cancelBatchLinkDrag() {
+      this.clearBatchDragTargetHighlight()
+      this.removeBatchDragListeners()
+      this.batchDrag = {
+        active: false,
+        segmentId: '',
+        targetId: '',
+        path: ''
+      }
+    },
+    removeBatchDragListeners() {
+      window.removeEventListener('mousemove', this.handleBatchLinkDrag)
+      window.removeEventListener('mouseup', this.finishBatchLinkDrag)
+    },
+    clearBatchDragTargetHighlight() {
+      document.querySelectorAll('.render-preview__entry--drag-target').forEach(element => {
+        element.classList.remove('render-preview__entry--drag-target')
+      })
+    },
+    getBatchTargetElements(targetId) {
+      const preview = this.$refs.renderPreview
+      const chineseColumn = preview && preview.$refs.chineseColumn
+      const target = this.batchTargets.find(item => item.id === targetId)
+      if (!chineseColumn || !target) return []
+      const wordKey = target.job.en_str.toLowerCase()
+      return Array.from(chineseColumn.querySelectorAll('[data-word-key]')).filter(
+        element => element.getAttribute('data-word-key') === wordKey
+      )
+    },
+    handleBatchSegmentInput(segmentId) {
+      const index = this.batchLinks.findIndex(link => link.segmentId === segmentId)
+      if (index !== -1) {
+        const link = this.batchLinks[index]
+        this.$set(this.batchLinks, index, this.createBatchLink(
+          link.targetId,
+          segmentId,
+          link.score,
+          link.confidence
+        ))
+      }
+      this.refreshBatchLines()
+    },
+    finalizeBatchSegmentInput(segmentId) {
+      const link = this.getBatchLinkBySegment(segmentId)
+      const segment = this.batchSegments.find(item => item.id === segmentId)
+      if (link && segment) segment.text = link.cn
+      this.refreshBatchLines()
+    },
+    getBatchSegmentTags(segmentId) {
+      const link = this.getBatchLinkBySegment(segmentId)
+      if (!link) return []
+      const target = this.batchTargets.find(item => item.id === link.targetId)
+      return getCopyableTagPairs(target.job.en_str, link.cn)
+    },
+    getBatchLinkLabel(link) {
+      if (link.unresolvedTags.length) return 'TAG 待确认'
+      if (link.confidence === 'manual') return '手动连接'
+      return `${link.score}%`
+    },
+    handleCopy(text, event) {
+      clip(text, event)
+    },
+    refreshBatchLines() {
+      this.$nextTick(() => {
+        const workspace = this.$refs.batchWorkspace
+        const preview = this.$refs.renderPreview
+        if (!workspace || !preview || !this.batchSegments.length) return
+        const chineseColumn = preview.$refs.chineseColumn
+        const workspaceRect = workspace.getBoundingClientRect()
+        this.batchLinePaths = this.batchLinks.map((link) => {
+          const target = this.batchTargets.find(item => item.id === link.targetId)
+          const targetElement = Array.from(chineseColumn.querySelectorAll('[data-word-key]')).find(
+            element => element.getAttribute('data-word-key') === target.job.en_str.toLowerCase()
+          )
+          const segmentRef = this.$refs[`batch-segment-${link.segmentId}`]
+          const segmentElement = Array.isArray(segmentRef) ? segmentRef[0] : segmentRef
+          if (!targetElement || !segmentElement) return null
+          const targetRect = targetElement.getBoundingClientRect()
+          const segmentRect = segmentElement.getBoundingClientRect()
+          const startX = targetRect.right - workspaceRect.left
+          const startY = targetRect.top + (targetRect.height / 2) - workspaceRect.top
+          const endX = segmentRect.left - workspaceRect.left
+          const endY = segmentRect.top + (segmentRect.height / 2) - workspaceRect.top
+          const curve = Math.max((endX - startX) * 0.45, 32)
+          return {
+            id: link.id,
+            segmentId: link.segmentId,
+            status: link.targetId === this.activeBatchTargetId
+              ? 'active'
+              : (link.unresolvedTags.length ? 'warning' : link.confidence),
+            path: `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`,
+            midX: (startX + endX) / 2,
+            midY: (startY + endY) / 2
+          }
+        }).filter(Boolean)
+      })
+    },
+    submitBatchImport() {
+      const items = this.batchLinks.map((link) => {
+        const target = this.batchTargets.find(item => item.id === link.targetId)
+        return {
+          word_id: target.job.sql_id,
+          uid: target.job.uid,
+          en_str: target.job.en_str,
+          tag: target.job.tag,
+          cn: link.cn.trim()
+        }
+      }).filter(item => item.cn)
+      if (!items.length) return
+      const tagErrors = items.map((item, index) => {
+        const validation = validateTranslationTags(item.en_str, item.cn)
+        if (validation.valid) return null
+        return {
+          index: index + 1,
+          en: item.en_str,
+          message: validation.message
+        }
+      }).filter(Boolean)
+      if (tagErrors.length) {
+        const firstError = tagErrors[0]
+        const sourcePreview = firstError.en.length > 80
+          ? `${firstError.en.slice(0, 80)}...`
+          : firstError.en
+        this.$notify({
+          title: `TAG 检查失败（${tagErrors.length} 条）`,
+          message: `第 ${firstError.index} 条：${firstError.message}；英文：${sourcePreview}`,
+          type: 'error',
+          duration: 8000
+        })
+        return
+      }
+      this.batchSubmitting = true
+      createBatchProofread({ current_file: this.file_path, items }).then((response) => {
+        this.$message.success(`已提交 ${response.data.items.length} 条批量校对`)
+        this.handleBatchSubmitted(response.data)
+        this.clearBatchImport()
+      }).finally(() => {
+        this.batchSubmitting = false
       })
     },
     handleWordUpdated(word) {
@@ -526,6 +1061,7 @@ export default {
       // console.log(this.json_html)
     },
     toProofread(row, en_in_file) {
+      this.proofreadCollapsed = false
       this.$nextTick(() => {
         if (row) {
           this.temp = row
@@ -539,12 +1075,50 @@ export default {
         if (this.en_in_file) {
           this.scrollToWord(this.en_in_file)
         }
+        this.focusLinkedBatchTranslation(row)
+        this.$nextTick(() => {
+          this.fillLinkedBatchTranslation(row)
+        })
+      })
+    },
+    focusLinkedBatchTranslation(row) {
+      if (!this.batchSegments.length || !row || !row.uid) {
+        this.refreshBatchLines()
+        return
+      }
+      const target = this.batchTargets.find(item => item.job.uid === row.uid)
+      if (target) {
+        this.batchPendingTargetId = target.id
+        this.scrollToLinkedBatchSegment(target.id)
+      }
+      this.refreshBatchLines()
+    },
+    fillLinkedBatchTranslation(row) {
+      if (!row) return
+      const target = this.batchTargets.find(item => {
+        if (row.uid && item.job.uid === row.uid) return true
+        return row.en_str && item.job.en_str === row.en_str
+      })
+      if (!target) return
+      const link = this.batchLinks.find(item => item.targetId === target.id)
+      if (!link || !link.cn || !this.$refs.proofread) return
+      this.$refs.proofread.fillProofreadText(link.cn)
+      this.$message({
+        message: '已自动填入该条目连接的导入译文，请确认后提交',
+        type: 'info',
+        duration: 2500
       })
     }
   }
 }
 </script>
 <style>
+  body.render-preview-resizing,
+  body.batch-panel-resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
+
   .file-page {
     position: relative;
     width: 100%;
@@ -563,8 +1137,39 @@ export default {
   }
 
   .proofread-content {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
+  }
+
+  .proofread-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: #fff;
+  }
+
+  .proofread-pane__toggle {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 36px;
+    padding: 7px 12px;
+    border: 0;
+    border-bottom: 1px solid #dcdfe6;
+    background: #f5f7fa;
+    color: #409eff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .proofread-pane__toggle:hover {
+    background: #ecf5ff;
   }
 
   .proofread-empty {
@@ -576,6 +1181,220 @@ export default {
   .bilingual-preview-pane {
     height: 100%;
     overflow: hidden;
+  }
+
+  .inline-batch-workspace {
+    position: relative;
+    display: flex;
+    height: 100%;
+    min-width: 0;
+  }
+
+  .inline-batch-preview {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .inline-batch-panel-resizer {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 8px;
+    width: 8px;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: #f5f7fa;
+    cursor: col-resize;
+  }
+
+  .inline-batch-panel-resizer::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    background: #d8e1ec;
+    content: "";
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .inline-batch-panel-resizer:hover::before {
+    background: #409eff;
+    box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.14);
+  }
+
+  .inline-batch-panel {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    min-width: 240px;
+    height: 100%;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+    border-left: 1px solid #dcdfe6;
+    background: #f5f7fa;
+    box-sizing: border-box;
+  }
+
+  .inline-batch-panel__header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin: 0 -8px 6px;
+    padding: 7px 9px;
+    border-bottom: 1px solid #dcdfe6;
+    background: #fff;
+    font-size: 12px;
+  }
+
+  .inline-batch-panel__header span {
+    margin-left: 6px;
+    color: #909399;
+  }
+
+  .inline-batch-segment {
+    position: relative;
+    margin-bottom: 5px;
+    padding: 6px;
+    border: 1px solid #c6e2ff;
+    border-radius: 5px;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  .inline-batch-segment__connector {
+    position: absolute;
+    top: 50%;
+    left: -7px;
+    z-index: 5;
+    width: 13px;
+    height: 13px;
+    padding: 0;
+    border: 2px solid #409eff;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.14);
+    cursor: crosshair;
+    transform: translateY(-50%);
+  }
+
+  .inline-batch-segment__connector:hover {
+    background: #409eff;
+  }
+
+  .inline-batch-segment--unmatched {
+    border-color: #dcdfe6;
+    background: #ebeef5;
+    color: #909399;
+  }
+
+  .inline-batch-segment--active {
+    border-color: #f56c6c;
+    background: #fff3f3;
+    box-shadow: 0 0 0 3px rgba(245, 108, 108, 0.24), 0 8px 20px rgba(245, 108, 108, 0.2);
+  }
+
+  .inline-batch-segment__meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 18px;
+    color: #909399;
+    font-size: 11px;
+  }
+
+  .inline-batch-tags {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 3px;
+  }
+
+  .inline-batch-tags .el-button {
+    max-width: 290px;
+    padding: 4px 6px;
+    overflow: hidden;
+    font-size: 10px;
+    text-overflow: ellipsis;
+  }
+
+  .inline-batch-lines {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .inline-batch-line {
+    fill: none;
+    stroke: #409eff;
+    stroke-width: 1.5;
+  }
+
+  .inline-batch-line-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 14;
+    pointer-events: stroke;
+    cursor: pointer;
+  }
+
+  .inline-batch-line-remove {
+    pointer-events: all;
+    cursor: pointer;
+  }
+
+  .inline-batch-line-remove circle {
+    fill: #f56c6c;
+    stroke: #fff;
+    stroke-width: 2;
+  }
+
+  .inline-batch-line-remove text {
+    fill: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: central;
+    user-select: none;
+  }
+
+  .inline-batch-line--high {
+    stroke: #67c23a;
+  }
+
+  .inline-batch-line--active {
+    stroke: #f56c6c;
+    stroke-width: 4;
+    filter: drop-shadow(0 0 4px rgba(245, 108, 108, 0.75));
+  }
+
+  .inline-batch-line--dragging {
+    stroke: #f56c6c;
+    stroke-width: 2.5;
+    stroke-dasharray: 6 4;
+  }
+
+  .render-preview__entry--drag-target {
+    position: relative;
+    z-index: 6;
+    color: #b42318 !important;
+    background: #ffe0e0 !important;
+    box-shadow: 0 0 0 4px rgba(245, 108, 108, 0.75), 0 8px 20px rgba(245, 108, 108, 0.28) !important;
+    font-weight: 700;
+  }
+
+  .inline-batch-line--warning,
+  .inline-batch-line--medium,
+  .inline-batch-line--low {
+    stroke: #e6a23c;
+    stroke-dasharray: 5 3;
   }
 
   .text-context-menu {

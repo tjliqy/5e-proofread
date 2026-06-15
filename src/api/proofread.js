@@ -24,6 +24,14 @@ export function createProofread(data) {
   })
 }
 
+export function createBatchProofread(data) {
+  return request({
+    url: '/proofread/batch',
+    method: 'post',
+    data
+  })
+}
+
 export function acceptProofread(data) {
   return request({
     url: '/accepted',

@@ -1,10 +1,14 @@
 import request from '@/utils/request'
 
-export function fetchFiles(file_name) {
+export function fetchFiles(file_name, force = false) {
+  const params = { file: file_name }
+  if (force) {
+    params._t = Date.now()
+  }
   return request({
     url: '/json',
     method: 'get',
-    params: { 'file': file_name }
+    params
   })
 }
 
@@ -30,5 +34,21 @@ export function updateFile(file_name, file_data) {
     method: 'put',
     params: { 'file': file_name },
     data: file_data
+  })
+}
+
+export function claimFile(data) {
+  return request({
+    url: '/file/claim',
+    method: 'put',
+    data
+  })
+}
+
+export function releaseFileClaim(data) {
+  return request({
+    url: '/file/claim',
+    method: 'delete',
+    data
   })
 }

@@ -64,6 +64,39 @@
               </div>
             </div>
           </div>
+          <div v-if="isFileDetailPage" class="file-status-legend">
+            <span class="file-status-legend__item">
+              <i class="file-status-legend__dot file-status-legend__dot--proofread" />
+              已确认文本
+            </span>
+            <span class="file-status-legend__item">
+              <i class="file-status-legend__dot file-status-legend__dot--pending" />
+              有校对未确认的文本
+            </span>
+            <span class="file-status-legend__item">
+              <i class="file-status-legend__dot file-status-legend__dot--unconfirmed" />
+              未确认文本
+            </span>
+          </div>
+          <div v-if="isFileDetailPage" class="auto-next-control">
+            <span>校对后自动下一个</span>
+            <el-switch
+              v-model="fileProofreadAutoNext"
+              size="mini"
+              @change="handleFileProofreadAutoNextChange"
+            />
+          </div>
+          <el-button
+            v-if="isFileDetailPage"
+            size="mini"
+            type="primary"
+            icon="el-icon-document-add"
+            class="toolbar-button toolbar-button--batch"
+            :disabled="!fileProofreadCanBatchImport"
+            @click="requestBatchProofreadImport"
+          >
+            批量导入译文
+          </el-button>
           <el-button
             v-if="isFileDetailPage && $store.getters.roles === 'admin' && currentFilePath"
             size="mini"
@@ -79,6 +112,16 @@
             <span class="path-label">当前路径</span>
             <span class="path-value">{{ workspacePath }}</span>
           </div>
+          <el-button
+            v-if="isFileMenuPage"
+            size="mini"
+            :type="menuHideCompleted ? 'primary' : 'default'"
+            :icon="menuHideCompleted ? 'el-icon-view' : 'el-icon-hide'"
+            class="toolbar-button toolbar-button--hide-completed"
+            @click="toggleMenuHideCompleted"
+          >
+            {{ menuHideCompleted ? '显示已完成' : '隐藏已完成' }}
+          </el-button>
           <el-input
             v-if="isFileMenuPage"
             v-model="menuSearchDraft"
@@ -131,6 +174,11 @@
             <i class="el-icon-caret-bottom" />
           </div>
           <el-dropdown-menu slot="dropdown">
+            <router-link to="/profile/index">
+              <el-dropdown-item>
+                <span style="display:block;">个人信息</span>
+              </el-dropdown-item>
+            </router-link>
             <el-dropdown-item divided @click.native="logout">
               <span style="display:block;">登出</span>
             </el-dropdown-item>
@@ -294,12 +342,15 @@ import { fetchSyncTaskStatus, syncFileProgress } from '@/api/files'
 export default {
   chmPanelWidthStorageKey: 'workbench.chmPanelWidth',
   chmPanelStateStorageKey: 'workbench.chmPanelState',
+  fileProofreadAutoNextStorageKey: 'file-proofread-auto-next',
   data() {
     return {
       menuSearchDraft: '',
       defaultAvatarDataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23dbe7f7'/%3E%3Cstop offset='100%25' stop-color='%23b9cbe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='80' height='80' rx='18' fill='url(%23g)'/%3E%3Ccircle cx='40' cy='30' r='14' fill='%23627996'/%3E%3Cpath d='M18 67c4-12 15-19 22-19s18 7 22 19' fill='%23627996'/%3E%3C/svg%3E",
       syncingCurrentFile: false,
       fileHeaderCompact: false,
+      fileProofreadCanBatchImport: false,
+      fileProofreadAutoNext: true,
       chmDrawerVisible: false,
       chmPanelWidth: 720,
       chmLoading: false,
@@ -340,6 +391,10 @@ export default {
     },
     currentDir() {
       return this.$route.query && this.$route.query.dir ? this.$route.query.dir : '/'
+    },
+    menuHideCompleted() {
+      if (this.$route.query.hide_completed === '1') return true
+      return localStorage.getItem('file-menu-hide-completed') === '1'
     },
     currentFilePath() {
       return this.$route.query && this.$route.query.file_path ? this.$route.query.file_path : ''
@@ -433,19 +488,23 @@ export default {
     '$route.path'() {
       if (!this.isFileDetailPage) {
         this.fileHeaderCompact = false
+        this.fileProofreadCanBatchImport = false
       }
     }
   },
   mounted() {
+    this.restoreFileProofreadAutoNext()
     this.restoreChmPanelWidth()
     this.restoreChmPanelState()
     window.addEventListener('file-proofread-scroll', this.handleFileProofreadScroll)
+    window.addEventListener('file-proofread-toolbar-state', this.handleFileProofreadToolbarState)
     window.addEventListener('chm-search-request', this.handleChmSearchRequest)
     window.addEventListener('mousemove', this.handleResizeChmPanel)
     window.addEventListener('mouseup', this.stopResizeChmPanel)
   },
   beforeDestroy() {
     window.removeEventListener('file-proofread-scroll', this.handleFileProofreadScroll)
+    window.removeEventListener('file-proofread-toolbar-state', this.handleFileProofreadToolbarState)
     window.removeEventListener('chm-search-request', this.handleChmSearchRequest)
     window.removeEventListener('mousemove', this.handleResizeChmPanel)
     window.removeEventListener('mouseup', this.stopResizeChmPanel)
@@ -590,6 +649,32 @@ export default {
     handleFileProofreadScroll(event) {
       this.fileHeaderCompact = !!(event && event.detail && event.detail.compact)
     },
+    handleFileProofreadToolbarState(event) {
+      const detail = event && event.detail ? event.detail : {}
+      this.fileProofreadCanBatchImport = !!(detail.active && detail.canBatchImport)
+    },
+    restoreFileProofreadAutoNext() {
+      const storedValue = window.localStorage.getItem(this.$options.fileProofreadAutoNextStorageKey)
+      this.fileProofreadAutoNext = storedValue !== 'false'
+      this.notifyFileProofreadAutoNextChange()
+    },
+    handleFileProofreadAutoNextChange(value) {
+      window.localStorage.setItem(
+        this.$options.fileProofreadAutoNextStorageKey,
+        value ? 'true' : 'false'
+      )
+      this.notifyFileProofreadAutoNextChange()
+    },
+    notifyFileProofreadAutoNextChange() {
+      window.dispatchEvent(new CustomEvent('file-proofread-auto-next-change', {
+        detail: {
+          enabled: this.fileProofreadAutoNext
+        }
+      }))
+    },
+    requestBatchProofreadImport() {
+      window.dispatchEvent(new CustomEvent('file-proofread-batch-import'))
+    },
     toggleChmPanel(forceVisible) {
       const nextVisible = typeof forceVisible === 'boolean' ? forceVisible : !this.chmDrawerVisible
       this.chmDrawerVisible = nextVisible
@@ -683,6 +768,18 @@ export default {
       if (!this.isFileMenuPage) return
       const nextQuery = { ...this.$route.query, dir: this.currentDir }
       delete nextQuery.search
+      this.updateMenuQuery(nextQuery)
+    },
+    toggleMenuHideCompleted() {
+      if (!this.isFileMenuPage) return
+      const nextQuery = { ...this.$route.query, dir: this.currentDir }
+      if (this.menuHideCompleted) {
+        delete nextQuery.hide_completed
+        localStorage.setItem('file-menu-hide-completed', '0')
+      } else {
+        nextQuery.hide_completed = '1'
+        localStorage.setItem('file-menu-hide-completed', '1')
+      }
       this.updateMenuQuery(nextQuery)
     },
     goBackDir() {
@@ -872,6 +969,86 @@ export default {
     flex-shrink: 0;
   }
 
+  .toolbar-button--hide-completed {
+    flex-shrink: 0;
+  }
+
+  .toolbar-button--batch {
+    flex-shrink: 0;
+    color: #fff;
+    border-color: #409eff;
+    background: #409eff;
+
+    &:hover,
+    &:focus {
+      color: #fff;
+      border-color: #66b1ff;
+      background: #66b1ff;
+    }
+
+    &.is-disabled,
+    &.is-disabled:hover,
+    &.is-disabled:focus {
+      color: #fff;
+      border-color: #a0cfff;
+      background: #a0cfff;
+    }
+  }
+
+  .file-status-legend {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 10px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid #e0e7f0;
+    border-radius: 999px;
+    background: rgba(249, 251, 254, 0.94);
+    color: #506078;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .file-status-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .file-status-legend__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+
+  .file-status-legend__dot--proofread {
+    background: #67c23a;
+  }
+
+  .file-status-legend__dot--pending {
+    background: #e6a23c;
+  }
+
+  .file-status-legend__dot--unconfirmed {
+    background: #409eff;
+  }
+
+  .auto-next-control {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 8px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid #e0e7f0;
+    border-radius: 999px;
+    background: rgba(249, 251, 254, 0.94);
+    color: #506078;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
   .path-pill {
     display: inline-flex;
     align-items: center;
@@ -1037,6 +1214,11 @@ export default {
     .workspace-toolbar {
       flex: 1 1 100%;
       gap: 8px;
+    }
+
+    .file-status-legend {
+      min-height: 28px;
+      padding: 0 9px;
     }
   }
 
@@ -1219,6 +1401,19 @@ body.dark-mode .navbar {
     }
   }
 
+  .toolbar-button--batch {
+    color: #fff;
+    border-color: #3b82f6;
+    background: #2563eb;
+
+    &:hover,
+    &:focus {
+      color: #fff;
+      border-color: #60a5fa;
+      background: #3b82f6;
+    }
+  }
+
   .path-pill {
     background: rgba(20, 28, 41, 0.92);
     border-color: rgba(80, 97, 123, 0.82);
@@ -1226,6 +1421,18 @@ body.dark-mode .navbar {
 
   .file-progress-overlay--base {
     color: #c8d4e6;
+  }
+
+  .file-status-legend {
+    color: #cbd6e7;
+    background: rgba(20, 28, 41, 0.92);
+    border-color: rgba(80, 97, 123, 0.82);
+  }
+
+  .auto-next-control {
+    color: #cbd6e7;
+    background: rgba(20, 28, 41, 0.92);
+    border-color: rgba(80, 97, 123, 0.82);
   }
 
   .path-label {
